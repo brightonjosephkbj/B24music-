@@ -60,63 +60,11 @@ jobs:
       - name: Expo prebuild (generate native Android project)
         run: npx expo prebuild --platform android --clean
 
-      - name: Decode release keystore
-        run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
-
       # expo prebuild's generated build.gradle already has a release build
       # type pointing at signingConfigs.debug by default - we add a real
       # signingConfigs.release block and repoint that one line at it,
       # rather than inserting new lines into buildTypes (whitespace there
       # can shift between Expo SDK versions, this text is stable).
-      - name: Configure release signing
-        run: |
-          python3 << 'PYEOF'
-          import re
-
-          path = "android/app/build.gradle"
-          with open(path) as f:
-              content = f.read()
-
-          # Expo's generated build.gradle always ships a signingConfigs{}
-          # block already (with a debug{} entry inside it) - the old check
-          # here only looked for whether *any* signingConfigs{} existed and
-          # skipped adding release{} if one did, which left buildTypes.release
-          # pointing at a signing config that was never actually defined.
-          if "storeFile file('release.keystore')" not in content:
-              signing_release_block = '''        release {
-                      storeFile file('release.keystore')
-                      storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
-                      keyAlias System.getenv("ANDROID_KEY_ALIAS")
-                      keyPassword System.getenv("ANDROID_KEY_PASSWORD")
-                  }
-          '''
-              if "signingConfigs {" in content:
-                  content = content.replace("signingConfigs {\n", "signingConfigs {\n" + signing_release_block, 1)
-              else:
-                  signing_full_block = "    signingConfigs {\n" + signing_release_block + "    }\n"
-                  content = content.replace("android {\n", "android {\n" + signing_full_block, 1)
-
-          # Only repoint buildTypes.release's signing line - buildTypes.debug
-          # should keep pointing at signingConfigs.debug, so a plain
-          # assembleDebug still works locally without the release env vars set.
-          buildtypes_marker = "buildTypes {"
-          if buildtypes_marker in content:
-              before, after = content.split(buildtypes_marker, 1)
-              after, n = re.subn(
-                  r'(release\s*\{[^}]*?)signingConfig signingConfigs\.debug',
-                  r'\1signingConfig signingConfigs.release',
-                  after,
-                  count=1,
-                  flags=re.S,
-              )
-              content = before + buildtypes_marker + after
-
-          with open(path, "w") as f:
-              f.write(content)
-          print("build.gradle patched for release signing")
-          PYEOF
-
       - name: Build release APK
         working-directory: android
         env:
