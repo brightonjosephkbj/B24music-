@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
-import { useVideoPlayer, useEvent } from "expo-video";
+import { useVideoPlayer } from "expo-video";
+import { useEvent } from "expo";
 
 // ---------------------------------------------------------------------------
 // Unified playback engine for both mp3 (expo-audio) and mp4 (expo-video).
