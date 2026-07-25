@@ -1,26 +1,24 @@
-import { useCallback, useEffect, useState } from "react";
-import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from "expo-audio";
 import { useVideoPlayer } from "expo-video";
 import { useEvent } from "expo";
 
 // ---------------------------------------------------------------------------
 // Unified playback engine for both mp3 (expo-audio) and mp4 (expo-video).
 //
-// expo-av is deprecated/removed as of recent Expo SDKs, so audio and video
-// now live behind two separate libraries with two separate APIs. This hook
-// hides that split: give it a track object, and it always returns the same
-// { isPlaying, position, duration, play, pause, toggle, seekTo } shape,
-// regardless of whether the track is audio or video under the hood.
-//
 // track shape expected: { type: "audio" | "video", localUri?, stream_url?,
 // download_url? }. Source priority: a local downloaded file always wins over
 // a remote stream URL, so playback keeps working offline once downloaded.
 //
-// IMPORTANT: this hook always calls both useAudioPlayer and useVideoPlayer,
-// passing null to whichever one isn't active. That's required by the Rules
-// of Hooks (hooks can't be called conditionally) - passing null to expo-audio
-// / expo-video is the documented way to keep a player "idle" without loading
-// any media.
+// IMPORTANT ARCHITECTURE NOTE: both useAudioPlayer(source) and
+// useVideoPlayer(source, setup) only read their `source` argument on the
+// very first render that creates the player - changing it on a later
+// render does NOT reload the player. Since this hook is a single top-level
+// instance shared across the whole app (App.js calls it once, tracks
+// change over time), both players are created once with a null source,
+// and every subsequent track change explicitly calls .replace()/
+// videoPlayer.replace() - the documented, reliable way to swap what an
+// already-created player is pointed at.
 // ---------------------------------------------------------------------------
 
 function resolveUri(track) {
@@ -28,31 +26,75 @@ function resolveUri(track) {
   return track.localUri || track.stream_url || track.download_url || null;
 }
 
+// Configures the audio session once, app-wide, so playback survives the
+// screen locking or the app backgrounding. Without this, expo-audio stops
+// the moment the app loses focus - this was previously never called at all.
+let audioModeConfigured = false;
+async function ensureAudioMode() {
+  if (audioModeConfigured) return;
+  audioModeConfigured = true;
+  try {
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: "doNotMix",
+      interruptionModeAndroid: "doNotMix",
+    });
+  } catch (err) {
+    console.warn("Failed to configure background audio mode:", err);
+  }
+}
+
 export default function usePlaybackEngine(track) {
+  useEffect(() => {
+    ensureAudioMode();
+  }, []);
+
   const isVideo = track?.type === "video";
   const uri = resolveUri(track);
 
-  // ---- Audio branch (expo-audio) ----
-  const audioSource = !isVideo && uri ? { uri } : null;
-  const audioPlayer = useAudioPlayer(audioSource);
+  // ---- Audio branch (expo-audio) - created once, idle, no initial source ----
+  const audioPlayer = useAudioPlayer(null);
   const audioStatus = useAudioPlayerStatus(audioPlayer);
 
-  // ---- Video branch (expo-video) ----
-  const videoSource = isVideo && uri ? { uri } : null;
-  const videoPlayer = useVideoPlayer(videoSource, (player) => {
+  // ---- Video branch (expo-video) - same idea, created once ----
+  const videoPlayer = useVideoPlayer(null, (player) => {
     player.loop = false;
   });
-  // useEvent subscribes to the player's native event stream - this is how
-  // expo-video reports play/pause state changes, since VideoPlayer itself
-  // is not a React state object.
   const playingEvent = useEvent(videoPlayer, "playingChange", {
     isPlaying: videoPlayer?.playing ?? false,
   });
 
+  // Swap the active player's source whenever the resolved uri actually
+  // changes - this is the real fix, replacing the old (broken) assumption
+  // that passing a different `source` prop would reload automatically.
+  const lastLoadedUri = useRef(null);
+  const prevIsVideo = useRef(isVideo);
+
+  useEffect(() => {
+    // If the track TYPE switched (audio -> video or vice versa), stop
+    // whichever player was previously active so it doesn't keep playing
+    // silently in the background.
+    if (prevIsVideo.current !== isVideo) {
+      if (prevIsVideo.current) videoPlayer?.pause();
+      else audioPlayer?.pause();
+      prevIsVideo.current = isVideo;
+    }
+
+    if (uri === lastLoadedUri.current) return;
+    lastLoadedUri.current = uri;
+
+    if (!uri) return;
+
+    if (isVideo) {
+      videoPlayer?.replace({ uri });
+    } else {
+      audioPlayer?.replace({ uri });
+    }
+  }, [uri, isVideo, videoPlayer, audioPlayer]);
+
   // expo-video doesn't push continuous position updates by default, so we
-  // poll currentTime on an interval while a video track is active. 250ms is
-  // frequent enough for a smooth-looking progress bar without hammering
-  // the native bridge.
+  // poll currentTime on an interval while a video track is active.
   const [videoPosition, setVideoPosition] = useState(0);
   useEffect(() => {
     if (!isVideo || !videoPlayer) return;
@@ -102,9 +144,6 @@ export default function usePlaybackEngine(track) {
     pause,
     toggle,
     seekTo,
-    // Exposed so the video full-screen player can attach a <VideoView player={videoPlayer} />
-    // and so a future EQ screen can reach into the raw audio player if expo-audio
-    // exposes any processing hooks worth wiring up later.
     videoPlayer: isVideo ? videoPlayer : null,
     audioPlayer: !isVideo ? audioPlayer : null,
   };

@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import * as FileSystem from "expo-file-system/legacy";
+import * as MediaLibrary from "expo-media-library";
 import { resolveUrl, backendDownloadUrl } from "./urlFetchClient";
 import { getDownloads, saveDownloads } from "./libraryStorage";
 
@@ -97,6 +98,18 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
       );
 
       await downloadResumable.downloadAsync();
+
+      try {
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status === "granted") {
+          await MediaLibrary.saveToLibraryAsync(localUri);
+        }
+      } catch (mediaErr) {
+        // Non-fatal: the file still downloaded and plays fine from the
+        // app's own storage even if it couldn't be mirrored into the
+        // public MediaLibrary.
+        console.warn("Couldn't save to public MediaLibrary:", mediaErr);
+      }
 
       const entry = {
         id: `${result.provider}_${Date.now()}`,

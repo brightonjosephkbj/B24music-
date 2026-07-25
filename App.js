@@ -1,6 +1,6 @@
 import "react-native-gesture-handler"; // must be the very first import, before anything else
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
@@ -20,11 +20,27 @@ import JokesScreen from "./JokesScreen";
 import FoodScreen from "./FoodScreen";
 import FullscreenVideoPlayer from "./FullscreenVideoPlayer";
 import SettingsScreen from "./SettingsScreen";
+import UpdatePrompt from "./UpdatePrompt";
+import { checkForUpdate } from "./otaClient";
 
 export default function App() {
   const [activeNav, setActiveNav] = useState("home");
   const [activeDrawerScreen, setActiveDrawerScreen] = useState(null); // e.g. "news"
   const [nowPlaying, setNowPlaying] = useState(null); // track object
+  const [updateInfo, setUpdateInfo] = useState(null); // set once if /api/ota/check finds a newer version
+
+  // Silent launch-time check against the custom OTA backend (ota.py) - not
+  // expo-updates, since this app ships whole-APK replacements with its own
+  // changelog/mandatory flag rather than JS-bundle-only patches. A failed
+  // check (offline, backend down) is swallowed - it should never block
+  // someone from using the app.
+  useEffect(() => {
+    checkForUpdate()
+      .then((result) => {
+        if (result.update_available) setUpdateInfo(result);
+      })
+      .catch(() => {});
+  }, []);
   const [playerExpanded, setPlayerExpanded] = useState(false); // State A vs State B
 
   // The queue nowPlaying was picked from, plus its index in that queue.
@@ -161,6 +177,13 @@ export default function App() {
             onNext={nextTrack}
             onPrev={prevTrack}
           />
+      )}
+
+      {updateInfo && (
+        <UpdatePrompt
+          update={updateInfo}
+          onDismiss={() => setUpdateInfo(null)}
+        />
       )}
 
       <StatusBar style="light" />
