@@ -28,7 +28,22 @@
           "savePhotosPermission": "Allow b24meet to save media to your library.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow this app to access your camera to scan food barcodes."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow b24meet to access your location to show local weather."
+        }
+      ],
+      "expo-asset"
     ]
   }
 }

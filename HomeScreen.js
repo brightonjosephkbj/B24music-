@@ -50,7 +50,7 @@ const DRAWER_TILES = [
 // this screen doesn't assume any particular navigation library - wire them
 // up to whatever you're using (React Navigation, a simple state switch,
 // etc.) from the parent.
-export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress }) {
+export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress }) {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -191,9 +191,14 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
             </View>
             <Text style={styles.greeting}>Hey there</Text>
           </View>
-          <TouchableOpacity style={styles.iconButton} onPress={onSearchPress}>
-            <Text style={styles.iconGlyph}>Search</Text>
-          </TouchableOpacity>
+          <View style={styles.headerRight}>
+            <TouchableOpacity style={styles.iconButton} onPress={onPasteLinkPress}>
+              <Text style={styles.iconGlyph}>Link</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={onSearchPress}>
+              <Text style={styles.iconGlyph}>Search</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ---------- Category chips ---------- */}
@@ -236,7 +241,7 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
               <TouchableOpacity
                 key={`${track.provider}-${track.id}`}
                 style={styles.trackCard}
-                onPress={() => onTrackPress && onTrackPress(track)}
+                onPress={() => onTrackPress && onTrackPress(track, displayedTracks)}
               >
                 <Image
                   source={track.artwork ? { uri: track.artwork } : undefined}
@@ -306,6 +311,7 @@ const styles = StyleSheet.create({
   scrollContent: { paddingTop: 56, paddingHorizontal: 20, paddingBottom: 140 },
 
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 18 },
+  headerRight: { flexDirection: "row", gap: 8 },
   headerLeft: { flexDirection: "row", alignItems: "center" },
   avatarCircle: {
     width: 40,

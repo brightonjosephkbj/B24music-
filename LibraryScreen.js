@@ -25,6 +25,7 @@ import {
   addTrackToPlaylist,
 } from "./libraryStorage";
 import ContextMenuCard from "./ContextMenuCard";
+import ImageViewer from "./ImageViewer";
 import { scanDeviceMedia } from "./localMediaScanner";
 
 const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
@@ -66,6 +67,12 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   // Add-to-playlist picker
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerTarget, setPickerTarget] = useState(null); // the item being added
+
+  // Saved images (from ArtScreen/ImageViewer's Save button) open here
+  // instead of being routed to the audio/video player.
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [imageViewerItems, setImageViewerItems] = useState([]);
+  const [imageViewerIndex, setImageViewerIndex] = useState(0);
 
   const loadAll = useCallback(async () => {
     const [d, f, p] = await Promise.all([getDownloads(), getFolders(), getPlaylists()]);
@@ -172,20 +179,42 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     return acc;
   }, {});
 
+  const openImage = (item) => {
+    const savedImages = downloads.filter((d) => d.type === "image");
+    const idx = savedImages.findIndex((d) => d.id === item.id);
+    setImageViewerItems(
+      savedImages.map((d) => ({
+        id: d.id,
+        title: d.title,
+        artist: d.artist,
+        image: d.localUri,
+        thumbnail: d.artwork || d.localUri,
+        download_url: d.localUri,
+        source: d.source,
+      }))
+    );
+    setImageViewerIndex(idx === -1 ? 0 : idx);
+    setImageViewerVisible(true);
+  };
+
   const renderTrackRow = (item) => (
     <TouchableOpacity
       key={item.id}
       style={styles.row}
-      onPress={() => onTrackPress && onTrackPress(item)}
+      onPress={() => (item.type === "image" ? openImage(item) : onTrackPress && onTrackPress(item))}
       onLongPress={(evt) => openMenu(evt, item)}
       delayLongPress={300}
     >
       <Image source={item.artwork ? { uri: item.artwork } : undefined} style={styles.rowArt} />
       <View style={styles.rowTextWrap}>
         <Text numberOfLines={1} style={styles.rowTitle}>{item.title}</Text>
-        <Text numberOfLines={1} style={styles.rowArtist}>{item.artist}</Text>
+        {!!item.artist && <Text numberOfLines={1} style={styles.rowArtist}>{item.artist}</Text>}
       </View>
-      <Text style={styles.rowDuration}>{formatDuration(item.duration)}</Text>
+      {item.type === "image" ? (
+        <Text style={styles.rowDuration}>Image</Text>
+      ) : (
+        <Text style={styles.rowDuration}>{formatDuration(item.duration)}</Text>
+      )}
     </TouchableOpacity>
   );
 
@@ -400,6 +429,13 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <ImageViewer
+        visible={imageViewerVisible}
+        images={imageViewerItems}
+        initialIndex={imageViewerIndex}
+        onClose={() => setImageViewerVisible(false)}
+      />
     </View>
   );
 }
