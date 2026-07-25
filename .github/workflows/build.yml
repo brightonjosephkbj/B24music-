@@ -1,0 +1,91 @@
+name: Build Signed Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install dependencies
+        run: npm install
+
+      # Managed Expo projects don't commit an android/ folder - prebuild
+      # generates it fresh from app.json each run, so it always reflects
+      # your current plugins (media-library, camera, location, audio, video).
+      - name: Expo prebuild (generate native Android project)
+        run: npx expo prebuild --platform android --clean
+
+      - name: Decode release keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+
+      # expo prebuild's generated build.gradle already has a release build
+      # type pointing at signingConfigs.debug by default - we add a real
+      # signingConfigs.release block and repoint that one line at it,
+      # rather than inserting new lines into buildTypes (whitespace there
+      # can shift between Expo SDK versions, this text is stable).
+      - name: Configure release signing
+        run: |
+          python3 << 'PYEOF'
+          path = "android/app/build.gradle"
+          with open(path) as f:
+              content = f.read()
+
+          if "signingConfigs {" not in content:
+              signing_block = '''    signingConfigs {
+        release {
+            storeFile file('release.keystore')
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+'''
+              content = content.replace("android {\n", "android {\n" + signing_block, 1)
+
+          content = content.replace(
+              "signingConfig signingConfigs.debug",
+              "signingConfig signingConfigs.release",
+          )
+
+          with open(path, "w") as f:
+              f.write(content)
+          print("build.gradle patched for release signing")
+          PYEOF
+
+      - name: Build release APK
+        working-directory: frontend/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: b24meet-release-apk
+          path: frontend/android/app/build/outputs/apk/release/app-release.apk
