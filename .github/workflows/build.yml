@@ -64,6 +64,14 @@ jobs:
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
 
+      - name: Verify decoded keystore
+        run: |
+          keytool -list -v \
+            -keystore android/app/release.keystore \
+            -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+            -alias "${{ secrets.ANDROID_KEY_ALIAS }}" \
+          || (echo "::error::Decoded keystore is invalid — check ANDROID_KEYSTORE_BASE64 secret was base64 -w0 encoded correctly with no line wraps." && exit 1)
+
       # expo prebuild's generated build.gradle already has a release build
       # type pointing at signingConfigs.debug by default - we add a real
       # signingConfigs.release block and repoint that one line at it,
