@@ -72,26 +72,45 @@ jobs:
       - name: Configure release signing
         run: |
           python3 << 'PYEOF'
+          import re
+
           path = "android/app/build.gradle"
           with open(path) as f:
               content = f.read()
 
-          if "signingConfigs {" not in content:
-              signing_block = '''    signingConfigs {
-                  release {
+          # Expo's generated build.gradle always ships a signingConfigs{}
+          # block already (with a debug{} entry inside it) - the old check
+          # here only looked for whether *any* signingConfigs{} existed and
+          # skipped adding release{} if one did, which left buildTypes.release
+          # pointing at a signing config that was never actually defined.
+          if "storeFile file('release.keystore')" not in content:
+              signing_release_block = '''        release {
                       storeFile file('release.keystore')
                       storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
                       keyAlias System.getenv("ANDROID_KEY_ALIAS")
                       keyPassword System.getenv("ANDROID_KEY_PASSWORD")
                   }
-              }
           '''
-              content = content.replace("android {\n", "android {\n" + signing_block, 1)
+              if "signingConfigs {" in content:
+                  content = content.replace("signingConfigs {\n", "signingConfigs {\n" + signing_release_block, 1)
+              else:
+                  signing_full_block = "    signingConfigs {\n" + signing_release_block + "    }\n"
+                  content = content.replace("android {\n", "android {\n" + signing_full_block, 1)
 
-          content = content.replace(
-              "signingConfig signingConfigs.debug",
-              "signingConfig signingConfigs.release",
-          )
+          # Only repoint buildTypes.release's signing line - buildTypes.debug
+          # should keep pointing at signingConfigs.debug, so a plain
+          # assembleDebug still works locally without the release env vars set.
+          buildtypes_marker = "buildTypes {"
+          if buildtypes_marker in content:
+              before, after = content.split(buildtypes_marker, 1)
+              after, n = re.subn(
+                  r'(release\s*\{[^}]*?)signingConfig signingConfigs\.debug',
+                  r'\1signingConfig signingConfigs.release',
+                  after,
+                  count=1,
+                  flags=re.S,
+              )
+              content = before + buildtypes_marker + after
 
           with open(path, "w") as f:
               f.write(content)
