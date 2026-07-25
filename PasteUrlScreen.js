@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { resolveUrl, backendDownloadUrl } from "./urlFetchClient";
 import { getDownloads, saveDownloads } from "./libraryStorage";
 

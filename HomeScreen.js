@@ -232,11 +232,7 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
         )}
 
         {!loading && !error && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.trackRow}
-          >
+          <View style={styles.trackGrid}>
             {displayedTracks.map((track) => (
               <TouchableOpacity
                 key={`${track.provider}-${track.id}`}
@@ -251,7 +247,7 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
                 <Text numberOfLines={1} style={styles.trackArtist}>{track.artist}</Text>
               </TouchableOpacity>
             ))}
-          </ScrollView>
+          </View>
         )}
 
         {/* ---------- Quick-access strip hinting at the Glass Drawer ---------- */}
@@ -354,8 +350,8 @@ const styles = StyleSheet.create({
 
   sectionTitle: { color: "#fff", fontSize: 17, fontWeight: "700", marginBottom: 12, marginTop: 4 },
 
-  trackRow: { paddingRight: 20 },
-  trackCard: { width: 130, marginRight: 14 },
+  trackGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  trackCard: { width: "31%", marginBottom: 18 },
   trackArt: {
     width: 130,
     height: 130,

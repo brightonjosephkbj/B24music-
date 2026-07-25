@@ -46,6 +46,19 @@ export async function updateDownloadInfo(id, patch) {
   return saveDownloads(next);
 }
 
+export async function isDownloaded(id) {
+  const list = await getDownloads();
+  return list.some((d) => d.id === id);
+}
+
+export async function addDownload(entry) {
+  const list = await getDownloads();
+  if (list.some((d) => d.id === entry.id)) return list;
+  const next = [...list, entry];
+  await saveDownloads(next);
+  return next;
+}
+
 // ---- Folders ----
 // A folder: { id, name, itemIds: [] } - itemIds reference download ids or
 // playlist ids, since folders can hold a freeform mix of anything.

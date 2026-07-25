@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import ContextMenuCard from "./ContextMenuCard";
+import * as FileSystem from "expo-file-system/legacy";
+import { addDownload, isDownloaded } from "./libraryStorage";
 
 const API_BASE = "https://nrighton233j-b24music.hf.space";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -57,6 +59,70 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
   const [relatedLoading, setRelatedLoading] = useState(true);
 
   const [shuffleOn, setShuffleOn] = useState(false);
+
+  // ---- Download-to-library state ----
+  const [libDownloading, setLibDownloading] = useState(false);
+  const [libDownloaded, setLibDownloaded] = useState(false);
+  const [libProgress, setLibProgress] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLibDownloaded(false);
+    if (!track?.id || !track?.provider) return;
+    const key = `${track.provider}-${track.id}`;
+    isDownloaded(key).then((v) => {
+      if (!cancelled) setLibDownloaded(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [track?.id, track?.provider]);
+
+  const downloadToLibrary = async () => {
+    if (!track || libDownloading || libDownloaded) return;
+    const uri = track.download_url || track.stream_url;
+    if (!uri) return;
+
+    const key = `${track.provider}-${track.id}`;
+    setLibDownloading(true);
+    setLibProgress(0);
+    try {
+      const safeTitle = (track.title || "download").replace(/[^A-Za-z0-9 _-]/g, "").trim() || "download";
+      const localUri = FileSystem.documentDirectory + `${safeTitle}.mp3`;
+
+      const downloadResumable = FileSystem.createDownloadResumable(
+        uri,
+        localUri,
+        {},
+        (progressEvent) => {
+          const pct =
+            progressEvent.totalBytesExpectedToWrite > 0
+              ? progressEvent.totalBytesWritten / progressEvent.totalBytesExpectedToWrite
+              : 0;
+          setLibProgress(pct);
+        }
+      );
+      await downloadResumable.downloadAsync();
+
+      await addDownload({
+        id: key,
+        type: "audio",
+        title: track.title,
+        artist: track.artist,
+        artwork: track.artwork,
+        localUri,
+        duration: track.duration || 0,
+        source: track.provider,
+        addedAt: Date.now(),
+      });
+      setLibDownloaded(true);
+    } catch (err) {
+      // Non-critical convenience action - fail silently rather than
+      // interrupting playback with an error the person can't act on here.
+    } finally {
+      setLibDownloading(false);
+    }
+  };
 
   const [moreVisible, setMoreVisible] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState(null);
@@ -213,6 +279,14 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
     <View style={styles.overlay}>
       <LinearGradient colors={["#0d0d0f", "#1a1a1a"]} style={StyleSheet.absoluteFill} />
 
+        <TouchableOpacity
+          onPress={() => onCollapse && onCollapse()}
+          style={styles.closeButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.closeButtonText}>✕</Text>
+        </TouchableOpacity>
+
       <ScrollView
         ref={scrollRef}
         horizontal
@@ -350,6 +424,13 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden",
   },
   panelScroll: { flex: 1 },
+  closeButton: {
+    position: "absolute", top: 14, right: 18, zIndex: 10,
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    justifyContent: "center", alignItems: "center",
+  },
+  closeButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
   panel: { width: SCREEN_WIDTH, paddingHorizontal: 24, paddingTop: 36, alignItems: "center" },
 
   artworkWrap: {

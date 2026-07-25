@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { getDownloads, saveDownloads } from "./libraryStorage";
 
 const API_BASE = "https://nrighton233j-b24music.hf.space";
