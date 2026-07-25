@@ -27,6 +27,31 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # The on-device ImageMagick `convert` commands silently failed
+      # earlier (broken libheif in Termux), so the derived icon files were
+      # left as tiny placeholder stubs. Regenerate all of them fresh here,
+      # every run, straight from the real icon.png - Pillow has no
+      # dependency on libheif at all, so this sidesteps that problem
+      # completely rather than trying to fix Termux's install.
+      - name: Generate Android icon assets from icon.png
+        run: |
+          pip install --quiet --break-system-packages pillow
+          python3 << 'ICONEOF'
+          from PIL import Image
+
+          base = Image.open("assets/icon.png").convert("RGBA")
+
+          base.resize((1024, 1024)).save("assets/android-icon-foreground.png")
+
+          bg = Image.new("RGBA", (1024, 1024), (15, 18, 32, 255))
+          bg.save("assets/android-icon-background.png")
+
+          base.resize((1024, 1024)).convert("L").convert("RGBA").save("assets/android-icon-monochrome.png")
+
+          base.resize((48, 48)).save("assets/favicon.png")
+          base.resize((512, 512)).save("assets/splash-icon.png")
+          ICONEOF
+
       # Managed Expo projects don't commit an android/ folder - prebuild
       # generates it fresh from app.json each run, so it always reflects
       # your current plugins (media-library, camera, location, audio, video).
