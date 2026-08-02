@@ -41,11 +41,21 @@ function formatDuration(sec) {
   return `${m}:${s}`;
 }
 
+// Module-level (not component state) cache of the last device scan.
+// LibraryScreen fully unmounts/remounts every time the user switches away
+// from and back to the Library tab (App.js has no persistent navigator),
+// so a useRef guard inside the component is NOT enough to make the scan
+// run only once per session - it was silently re-scanning up to 500
+// audio + 500 video files from the phone every single time the tab was
+// opened, which is what was actually causing the lag. A module-level
+// variable lives for the JS engine's lifetime and survives remounts.
+let deviceMediaCache = null; // { audio: [...], video: [...] } | null
+
 export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [activeTab, setActiveTab] = useState("Downloads");
   const [downloads, setDownloads] = useState([]);
-  const [deviceAudio, setDeviceAudio] = useState([]);
-  const [deviceVideo, setDeviceVideo] = useState([]);
+  const [deviceAudio, setDeviceAudio] = useState(deviceMediaCache?.audio || []);
+  const [deviceVideo, setDeviceVideo] = useState(deviceMediaCache?.video || []);
   const [scanDenied, setScanDenied] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanErrorMsg, setScanErrorMsg] = useState(null);
@@ -94,6 +104,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
       setDeviceAudio(result.audio);
       setDeviceVideo(result.video);
       setLastScanCounts({ audio: result.audio.length, video: result.video.length });
+      deviceMediaCache = { audio: result.audio, video: result.video };
       if (result.error) setScanErrorMsg(result.error);
     } catch (err) {
       console.error("[runScan] unexpected error:", err);
@@ -105,10 +116,11 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
 
   // Auto-scan once per app session, on mount. Guarded with a ref so it
   // never re-fires just from switching tabs back and forth.
-  const hasAutoScanned = useRef(false);
   useEffect(() => {
-    if (hasAutoScanned.current) return;
-    hasAutoScanned.current = true;
+    // Skip entirely on remount if we already have a cached scan from
+    // earlier this app session - this is what actually stops the lag,
+    // the previous useRef guard did not survive tab-switch remounts.
+    if (deviceMediaCache) return;
     runScan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
