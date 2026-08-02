@@ -60,6 +60,24 @@ jobs:
       - name: Expo prebuild (generate native Android project)
         run: npx expo prebuild --platform android --clean
 
+      # expo prebuild regenerates android/gradle.properties every run, so
+      # this can't be a one-time commit to the file - it has to be patched
+      # back in on every build. KSP on expo-updates needs more Metaspace
+      # than Gradle's defaults give it on GitHub's runners, and too much
+      # worker parallelism competes for that same limited memory.
+      - name: Fix Gradle Metaspace OOM
+        run: |
+          cat >> android/gradle.properties << 'PROPSEOF'
+
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+          org.gradle.workers.max=2
+          org.gradle.parallel=false
+          kotlin.daemon.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=768m
+          PROPSEOF
+          echo "--- android/gradle.properties ---"
+          cat android/gradle.properties
+
+
       # expo prebuild's generated build.gradle already has a release build
       # type pointing at signingConfigs.debug by default - we add a real
       # signingConfigs.release block and repoint that one line at it,
