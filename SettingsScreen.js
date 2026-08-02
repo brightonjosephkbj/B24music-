@@ -1,44 +1,73 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Linking,
   Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Updates from "expo-updates";
 import appJson from "./app.json";
-import { checkForUpdate } from "./settingsApi";
 
-const ACCENT = "#B983FF"; // matches "The Rest" / general-settings tone from the Glass Drawer accents
+const ACCENT = "#B983FF";
 const GLASS_BG = "rgba(255,255,255,0.14)";
 const GLASS_BORDER = "rgba(255,255,255,0.25)";
 
-const CURRENT_VERSION = appJson.expo.version;
+const APP_VERSION = appJson.expo.version;
 
 export default function SettingsScreen() {
-  // status: "idle" | "checking" | "upToDate" | "available" | "error"
+  // status: "idle" | "checking" | "upToDate" | "available" | "downloading" | "ready" | "error"
   const [status, setStatus] = useState("idle");
-  const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
+  // Info about the update currently running on this device, if any -
+  // useful to confirm OTA actually took effect after a reload.
+  const runningInfo = {
+    isEmbedded: Updates.isEmbeddedLaunch,
+    updateId: Updates.updateId,
+    createdAt: Updates.createdAt,
+    runtimeVersion: Updates.runtimeVersion,
+    channel: Updates.channel,
+  };
+
   const runCheck = async () => {
+    if (__DEV__ || !Updates.isEnabled) {
+      setError("OTA updates are disabled in development builds - test this in a release/production build.");
+      setStatus("error");
+      return;
+    }
     setStatus("checking");
     setError(null);
     try {
-      const data = await checkForUpdate(Platform.OS, CURRENT_VERSION);
-      setResult(data);
-      setStatus(data.update_available ? "available" : "upToDate");
+      const result = await Updates.checkForUpdateAsync();
+      setStatus(result.isAvailable ? "available" : "upToDate");
     } catch (err) {
       setError(err.message || "Couldn't reach the update server");
       setStatus("error");
     }
   };
 
-  const openDownload = () => {
-    if (result?.download_url) Linking.openURL(result.download_url);
+  const downloadUpdate = async () => {
+    setStatus("downloading");
+    setError(null);
+    try {
+      await Updates.fetchUpdateAsync();
+      setStatus("ready");
+    } catch (err) {
+      setError(err.message || "Failed to download the update");
+      setStatus("error");
+    }
+  };
+
+  const applyUpdate = async () => {
+    try {
+      await Updates.reloadAsync();
+    } catch (err) {
+      setError(err.message || "Failed to apply the update");
+      setStatus("error");
+    }
   };
 
   return (
@@ -52,14 +81,26 @@ export default function SettingsScreen() {
       <View style={styles.content}>
         <View style={styles.card}>
           <Text style={styles.cardLabel}>App version</Text>
-          <Text style={styles.cardValue}>{CURRENT_VERSION}</Text>
+          <Text style={styles.cardValue}>{APP_VERSION}</Text>
           <Text style={styles.cardSubtle}>{Platform.OS === "ios" ? "iOS" : "Android"}</Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>Update channel</Text>
+          <Text style={styles.cardValue}>
+            {runningInfo.isEmbedded ? "Built-in (no OTA applied)" : "OTA update active"}
+          </Text>
+          {!runningInfo.isEmbedded && runningInfo.createdAt && (
+            <Text style={styles.cardSubtle}>
+              Applied {new Date(runningInfo.createdAt).toISOString().slice(0, 10)}
+            </Text>
+          )}
         </View>
 
         <TouchableOpacity
           style={[styles.checkButton, status === "checking" && styles.checkButtonDisabled]}
           onPress={runCheck}
-          disabled={status === "checking"}
+          disabled={status === "checking" || status === "downloading"}
         >
           {status === "checking" ? (
             <ActivityIndicator color="#fff" />
@@ -71,7 +112,6 @@ export default function SettingsScreen() {
         {status === "upToDate" && (
           <View style={styles.statusCard}>
             <Text style={styles.statusGood}>You're up to date.</Text>
-            <Text style={styles.cardSubtle}>Latest version: {result.latest_version}</Text>
           </View>
         )}
 
@@ -81,28 +121,28 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {status === "available" && result && (
+        {status === "available" && (
           <View style={styles.statusCard}>
-            <View style={styles.updateHeaderRow}>
-              <Text style={styles.statusGood}>New version available</Text>
-              {result.mandatory && (
-                <View style={styles.mandatoryBadge}>
-                  <Text style={styles.mandatoryBadgeText}>Required</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.cardValue}>{result.latest_version}</Text>
-            {!!result.published_at && (
-              <Text style={styles.cardSubtle}>Published {result.published_at.slice(0, 10)}</Text>
-            )}
-            {!!result.changelog && (
-              <>
-                <Text style={styles.sectionLabel}>What's new</Text>
-                <Text style={styles.changelogText}>{result.changelog}</Text>
-              </>
-            )}
-            <TouchableOpacity style={styles.downloadButton} onPress={openDownload}>
+            <Text style={styles.statusGood}>An update is available.</Text>
+            <TouchableOpacity style={styles.downloadButton} onPress={downloadUpdate}>
               <Text style={styles.checkButtonText}>Download Update</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {status === "downloading" && (
+          <View style={styles.statusCard}>
+            <ActivityIndicator color="#fff" />
+            <Text style={[styles.cardSubtle, { marginTop: 8, textAlign: "center" }]}>Downloading...</Text>
+          </View>
+        )}
+
+        {status === "ready" && (
+          <View style={styles.statusCard}>
+            <Text style={styles.statusGood}>Update downloaded.</Text>
+            <Text style={styles.cardSubtle}>Restart the app now to apply it.</Text>
+            <TouchableOpacity style={styles.downloadButton} onPress={applyUpdate}>
+              <Text style={styles.checkButtonText}>Restart & Apply</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -152,19 +192,8 @@ const styles = StyleSheet.create({
     padding: 18,
     marginTop: 16,
   },
-  updateHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   statusGood: { color: "#7AC547", fontSize: 15, fontWeight: "700" },
   statusBad: { color: "#FF6B6B", fontSize: 14, fontWeight: "600" },
-  mandatoryBadge: {
-    backgroundColor: "#E63946",
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  mandatoryBadgeText: { color: "#fff", fontSize: 11, fontWeight: "800" },
-
-  sectionLabel: { color: "rgba(255,255,255,0.85)", fontWeight: "700", fontSize: 13, marginTop: 14, marginBottom: 6 },
-  changelogText: { color: "rgba(255,255,255,0.85)", fontSize: 13, lineHeight: 19 },
 
   downloadButton: {
     backgroundColor: ACCENT,

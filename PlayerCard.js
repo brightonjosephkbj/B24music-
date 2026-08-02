@@ -5,10 +5,12 @@ import {
   StyleSheet,
   Image,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   Dimensions,
   Animated,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import ContextMenuCard from "./ContextMenuCard";
@@ -50,6 +52,11 @@ function activeLyricIndex(lyrics, position) {
 export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, onPlayTrack, onShuffleToggle }) {
   const [panel, setPanel] = useState(0); // 0 = Photo, 1 = Lyrics, 2 = Related
   const scrollRef = useRef(null);
+  const lyricsScrollRef = useRef(null);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const [sleepMinutes, setSleepMinutes] = useState(null);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const sleepTimerRef = useRef(null);
 
   const [lyrics, setLyrics] = useState([]);
   const [lyricsLoading, setLyricsLoading] = useState(true);
@@ -163,6 +170,14 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
     }
   }, [currentLineIndex]);
 
+  // ---- Auto-scroll lyrics panel to keep the active line in view ----
+  useEffect(() => {
+    if (currentLineIndex < 0 || !lyricsScrollRef.current) return;
+    const LINE_HEIGHT = 30; // 26 lineHeight + 4 marginBottom, from lyricLine style
+    const targetY = Math.max(0, currentLineIndex * LINE_HEIGHT - 100);
+    lyricsScrollRef.current.scrollTo({ y: targetY, animated: true });
+  }, [currentLineIndex]);
+
   const currentLine = currentLineIndex >= 0 ? lyrics[currentLineIndex]?.text : null;
 
   // ---- Play/pause button bounce ----
@@ -252,11 +267,65 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
     setMoreVisible(true);
   };
 
+  // Tap anywhere on the progress bar to jump playback to that position.
+  const onSeekPress = (evt) => {
+    if (!engine?.duration || !trackWidth) return;
+    const { locationX } = evt.nativeEvent;
+    const pct = Math.max(0, Math.min(1, locationX / trackWidth));
+    if (typeof engine.seekTo === "function") {
+      engine.seekTo(pct * engine.duration);
+    }
+  };
+
+  const applySleepTimer = (minutes) => {
+    if (sleepTimerRef.current) {
+      clearTimeout(sleepTimerRef.current);
+      sleepTimerRef.current = null;
+    }
+    setSleepMinutes(minutes);
+    if (minutes !== null) {
+      sleepTimerRef.current = setTimeout(() => {
+        if (engine?.isPlaying) engine.toggle();
+        setSleepMinutes(null);
+      }, minutes * 60 * 1000);
+    }
+  };
+
+  const cycleSleepTimer = () => {
+    const options = [null, 15, 30, 45, 60];
+    const idx = options.indexOf(sleepMinutes);
+    applySleepTimer(options[(idx + 1) % options.length]);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (sleepTimerRef.current) clearTimeout(sleepTimerRef.current);
+    };
+  }, []);
+
+  const cyclePlaybackSpeed = () => {
+    const rates = [1, 1.25, 1.5, 2, 0.75];
+    const idx = rates.indexOf(playbackRate);
+    const next = rates[(idx + 1) % rates.length];
+    setPlaybackRate(next);
+    if (typeof engine?.setRate === "function") {
+      engine.setRate(next);
+    }
+  };
+
   const moreActions = [
-    { key: "eq", label: "Equalizer", onPress: () => {} },
-    { key: "themes", label: "Player Themes", onPress: () => {} },
-    { key: "sleep", label: "Sleep Timer", onPress: () => {} },
-    { key: "speed", label: "Playback Speed", onPress: () => {} },
+    { key: "eq", label: "Equalizer (coming soon)", onPress: () => Alert.alert("Equalizer", "Coming soon.") },
+    { key: "themes", label: "Player Themes (coming soon)", onPress: () => Alert.alert("Player Themes", "Coming soon.") },
+    {
+      key: "sleep",
+      label: sleepMinutes ? `Sleep Timer: ${sleepMinutes}m (tap to change)` : "Sleep Timer: Off",
+      onPress: cycleSleepTimer,
+    },
+    {
+      key: "speed",
+      label: `Playback Speed: ${playbackRate}x`,
+      onPress: cyclePlaybackSpeed,
+    },
   ];
 
   const progressPct = engine?.duration ? Math.min(1, engine.position / engine.duration) : 0;
@@ -285,6 +354,21 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Text style={styles.closeButtonText}>✕</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={downloadToLibrary}
+          disabled={libDownloading || libDownloaded}
+          style={styles.downloadLibButton}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          {libDownloading ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : libDownloaded ? (
+            <Text style={styles.downloadLibButtonText}>✓</Text>
+          ) : (
+            <Text style={styles.downloadLibButtonText}>⬇</Text>
+          )}
         </TouchableOpacity>
 
       <ScrollView
@@ -320,10 +404,15 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
           <Text style={styles.trackArtist} numberOfLines={1}>{track?.artist}</Text>
 
           <View style={styles.progressRow}>
-            <View style={styles.progressTrack}>
+            <Pressable
+              onPress={onSeekPress}
+              onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width)}
+              style={styles.progressTrack}
+              hitSlop={{ top: 12, bottom: 12 }}
+            >
               <View style={[styles.progressFill, { width: `${progressPct * 100}%` }]} />
               <View style={[styles.progressDot, { left: `${progressPct * 100}%` }]} />
-            </View>
+            </Pressable>
             <View style={styles.timeRow}>
               <Text style={styles.timeText}>{formatTime(engine?.position)}</Text>
               <Text style={styles.timeText}>{formatTime(engine?.duration)}</Text>
@@ -365,7 +454,7 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
           ) : lyrics.length === 0 ? (
             <Text style={styles.emptyText}>No lyrics found for this track.</Text>
           ) : (
-            <ScrollView style={styles.lyricsScroll} contentContainerStyle={{ paddingBottom: 60 }}>
+            <ScrollView ref={lyricsScrollRef} style={styles.lyricsScroll} contentContainerStyle={{ paddingBottom: 60 }}>
               {lyrics.map((line, i) => (
                 <Text
                   key={i}
@@ -431,6 +520,13 @@ const styles = StyleSheet.create({
     justifyContent: "center", alignItems: "center",
   },
   closeButtonText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  downloadLibButton: {
+    position: "absolute", top: 14, left: 18, zIndex: 10,
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    justifyContent: "center", alignItems: "center",
+  },
+  downloadLibButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   panel: { width: SCREEN_WIDTH, paddingHorizontal: 24, paddingTop: 36, alignItems: "center" },
 
   artworkWrap: {

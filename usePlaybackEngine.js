@@ -132,6 +132,49 @@ export default function usePlaybackEngine(track) {
     [isVideo, videoPlayer, audioPlayer]
   );
 
+  // Playback rate: expo-video exposes a settable .playbackRate property;
+
+  // expo-audio's AudioPlayer exposes setPlaybackRate(rate, pitchCorrection).
+
+  // Wrapped defensively since exact method shape has shifted across SDKs.
+
+  const setRate = useCallback(
+
+    (rate) => {
+
+      try {
+
+        if (isVideo) {
+
+          if (videoPlayer) videoPlayer.playbackRate = rate;
+
+        } else if (audioPlayer) {
+
+          if (typeof audioPlayer.setPlaybackRate === "function") {
+
+            audioPlayer.setPlaybackRate(rate, "medium");
+
+          } else {
+
+            audioPlayer.playbackRate = rate;
+
+          }
+
+        }
+
+      } catch (err) {
+
+        console.warn("Failed to set playback rate:", err);
+
+      }
+
+  },
+
+  [isVideo, videoPlayer, audioPlayer]
+
+  );
+
+
   return {
     isVideo,
     isPlaying,
@@ -144,6 +187,8 @@ export default function usePlaybackEngine(track) {
     pause,
     toggle,
     seekTo,
+
+    setRate,
     videoPlayer: isVideo ? videoPlayer : null,
     audioPlayer: !isVideo ? audioPlayer : null,
   };
