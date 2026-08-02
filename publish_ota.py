@@ -1,7 +1,8 @@
 """
 publish_ota.py
-Builds the app bundle, uploads it to the Nrighton233j/Ota-updates dataset
-repo on HF, and updates the latest.json pointer for the current runtime
+Exports the app bundle via Expo, uploads it to the Nrighton233j/Ota-updates
+dataset repo on HF in the exact layout updates.py's /manifest endpoint
+expects, and updates the latest.json pointer for the current runtime
 version. Requires HF_TOKEN env var (write access to Nrighton233j namespace).
 """
 
@@ -9,11 +10,15 @@ import os
 import json
 import time
 import hashlib
+import mimetypes
 import subprocess
+from pathlib import Path
 from huggingface_hub import HfApi
 
 DATASET_REPO = "Nrighton233j/Ota-updates"
 EXPORT_DIR = "dist_ota"
+PLATFORM = "android"
+
 
 def sha256_file(path):
     h = hashlib.sha256()
@@ -22,10 +27,23 @@ def sha256_file(path):
             h.update(chunk)
     return h.hexdigest()
 
+
 def get_runtime_version():
     with open("app.json") as f:
         cfg = json.load(f)
     return cfg["expo"]["version"]
+
+
+def load_expo_export_metadata(export_dir):
+    meta_path = os.path.join(export_dir, "metadata.json")
+    if not os.path.exists(meta_path):
+        raise RuntimeError(
+            f"{meta_path} not found - expo export may have failed or "
+            "changed its output format."
+        )
+    with open(meta_path) as f:
+        return json.load(f)
+
 
 def main():
     token = os.environ.get("HF_TOKEN")
@@ -34,60 +52,101 @@ def main():
 
     print("Exporting Expo bundle...")
     subprocess.run(
-        ["npx", "expo", "export", "--platform", "android", "--output-dir", EXPORT_DIR],
+        ["npx", "expo", "export", "--platform", PLATFORM, "--output-dir", EXPORT_DIR],
         check=True,
     )
+
+    expo_meta = load_expo_export_metadata(EXPORT_DIR)
+    platform_meta = expo_meta.get("fileMetadata", {}).get(PLATFORM)
+    if not platform_meta:
+        raise RuntimeError(
+            f"No '{PLATFORM}' entry in dist_ota/metadata.json fileMetadata. "
+            f"Keys found: {list(expo_meta.get('fileMetadata', {}).keys())}"
+        )
 
     runtime_version = get_runtime_version()
     timestamp = str(int(time.time() * 1000))
     remote_prefix = f"updates/{runtime_version}/{timestamp}"
 
     api = HfApi(token=token)
+
+    bundle_rel_path = platform_meta["bundle"]
+    bundle_local_path = os.path.join(EXPORT_DIR, bundle_rel_path)
+    bundle_hash = sha256_file(bundle_local_path)
+    bundle_ext = Path(bundle_rel_path).suffix or ".js"
+    bundle_filename = f"{PLATFORM}-{bundle_hash}{bundle_ext}"
+    bundle_remote_path = f"{remote_prefix}/bundles/{bundle_filename}"
+
+    print(f"Uploading bundle {bundle_rel_path} -> {bundle_remote_path}")
+    api.upload_file(
+        path_or_fileobj=bundle_local_path,
+        path_in_repo=bundle_remote_path,
+        repo_id=DATASET_REPO,
+        repo_type="dataset",
+    )
+
     assets_manifest = []
+    for asset_entry in platform_meta.get("assets", []):
+        asset_rel_path = asset_entry["path"]
+        asset_ext = asset_entry.get("ext", "")
+        asset_local_path = os.path.join(EXPORT_DIR, asset_rel_path)
+        asset_hash = sha256_file(asset_local_path)
+        asset_filename = f"{asset_hash}.{asset_ext}" if asset_ext else asset_hash
+        asset_remote_path = f"{remote_prefix}/assets/{asset_filename}"
 
-    for root, _, files in os.walk(EXPORT_DIR):
-        for fname in files:
-            local_path = os.path.join(root, fname)
-            rel_path = os.path.relpath(local_path, EXPORT_DIR)
-            file_hash = sha256_file(local_path)
-            remote_path = f"{remote_prefix}/{rel_path}"
+        content_type = mimetypes.guess_type(f"a.{asset_ext}")[0] or "application/octet-stream"
 
-            print(f"Uploading {rel_path} -> {remote_path}")
-            api.upload_file(
-                path_or_fileobj=local_path,
-                path_in_repo=remote_path,
-                repo_id=DATASET_REPO,
-                repo_type="dataset",
-            )
-            assets_manifest.append({"path": rel_path, "sha256": file_hash})
+        print(f"Uploading asset {asset_rel_path} -> {asset_remote_path}")
+        api.upload_file(
+            path_or_fileobj=asset_local_path,
+            path_in_repo=asset_remote_path,
+            repo_id=DATASET_REPO,
+            repo_type="dataset",
+        )
+
+        assets_manifest.append({
+            "hash": asset_hash,
+            "key": asset_hash,
+            "filename": asset_filename,
+            "contentType": content_type,
+            "fileExtension": f".{asset_ext}" if asset_ext else "",
+        })
 
     metadata = {
         "runtimeVersion": runtime_version,
         "timestamp": timestamp,
+        "bundles": {
+            PLATFORM: {
+                "hash": bundle_hash,
+                "key": bundle_hash,
+                "filename": bundle_filename,
+            }
+        },
         "assets": assets_manifest,
     }
-    metadata_path = os.path.join(EXPORT_DIR, "metadata.json")
-    with open(metadata_path, "w") as f:
+    metadata_local_path = os.path.join(EXPORT_DIR, "_ota_metadata.json")
+    with open(metadata_local_path, "w") as f:
         json.dump(metadata, f)
     api.upload_file(
-        path_or_fileobj=metadata_path,
+        path_or_fileobj=metadata_local_path,
         path_in_repo=f"{remote_prefix}/metadata.json",
         repo_id=DATASET_REPO,
         repo_type="dataset",
     )
 
-    latest = {"runtimeVersion": runtime_version, "timestamp": timestamp}
-    latest_path = "latest.json"
-    with open(latest_path, "w") as f:
+    latest = {"timestamp": timestamp}
+    latest_local_path = os.path.join(EXPORT_DIR, "_ota_latest.json")
+    with open(latest_local_path, "w") as f:
         json.dump(latest, f)
     api.upload_file(
-        path_or_fileobj=latest_path,
+        path_or_fileobj=latest_local_path,
         path_in_repo=f"updates/{runtime_version}/latest.json",
         repo_id=DATASET_REPO,
         repo_type="dataset",
     )
 
     print(f"Published update for runtimeVersion={runtime_version}, timestamp={timestamp}")
+
 
 if __name__ == "__main__":
     main()
