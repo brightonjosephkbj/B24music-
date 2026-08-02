@@ -62,6 +62,13 @@ export default function SearchScreen({ onTrackPress }) {
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadedIds, setDownloadedIds] = useState(() => new Set());
 
+  // YouTube search-by-name results (metadata only until resolved via
+  // /lightning_stream). resolvingIds tracks which rows are mid-resolve so
+  // we can show a skeleton on just the play/download icon, not the whole row.
+  const [ytResults, setYtResults] = useState([]);
+  const [resolvingIds, setResolvingIds] = useState(() => new Set());
+  const [resolvedStreams, setResolvedStreams] = useState({}); // { videoId: streamInfo }
+
   const runSearch = async () => {
     const q = query.trim();
     if (!q) return;
@@ -70,13 +77,29 @@ export default function SearchScreen({ onTrackPress }) {
     setSearched(true);
     try {
       const params = new URLSearchParams({ q });
-      const res = await fetch(`${API_BASE}/api/music/search?${params.toString()}`);
-      if (!res.ok) throw new Error(`Server responded ${res.status}`);
-      const data = await res.json();
-      setCategories(data.categories || {});
+
+      const [libraryRes, ytRes] = await Promise.allSettled([
+        fetch(`${API_BASE}/api/music/search?${params.toString()}`),
+        fetch(`${API_BASE}/api/fetch/search_by_name?${params.toString()}`),
+      ]);
+
+      if (libraryRes.status === "fulfilled" && libraryRes.value.ok) {
+        const data = await libraryRes.value.json();
+        setCategories(data.categories || {});
+      } else {
+        setCategories({});
+      }
+
+      if (ytRes.status === "fulfilled" && ytRes.value.ok) {
+        const ytData = await ytRes.value.json();
+        setYtResults(ytData.results || []);
+      } else {
+        setYtResults([]);
+      }
     } catch (err) {
       setError(err.message || "Search failed");
       setCategories({});
+      setYtResults([]);
     } finally {
       setLoading(false);
     }
@@ -123,6 +146,140 @@ export default function SearchScreen({ onTrackPress }) {
     } finally {
       setDownloadingKey(null);
     }
+  };
+
+  // Resolves a YouTube result to a playable stream_url the first time it's
+  // tapped, then caches it so replaying/downloading never re-resolves.
+  const resolveYoutubeTrack = async (ytItem) => {
+    if (resolvedStreams[ytItem.id]) return resolvedStreams[ytItem.id];
+
+    setResolvingIds((prev) => new Set(prev).add(ytItem.id));
+    try {
+      const params = new URLSearchParams({ url: ytItem.url, mode: "audio", quality: "high" });
+      const res = await fetch(`${API_BASE}/api/fetch/lightning_stream?${params.toString()}`);
+      if (!res.ok) throw new Error(`Resolve failed (${res.status})`);
+      const streamInfo = await res.json();
+      setResolvedStreams((prev) => ({ ...prev, [ytItem.id]: streamInfo }));
+      return streamInfo;
+    } catch (err) {
+      setError(err.message || "Could not load that track");
+      return null;
+    } finally {
+      setResolvingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(ytItem.id);
+        return next;
+      });
+    }
+  };
+
+  const handleYoutubePress = async (ytItem) => {
+    const streamInfo = resolvedStreams[ytItem.id] || (await resolveYoutubeTrack(ytItem));
+    if (!streamInfo) return;
+
+    const track = {
+      provider: "youtube",
+      id: ytItem.id,
+      title: streamInfo.title || ytItem.title,
+      artist: ytItem.uploader,
+      artwork: ytItem.thumbnail,
+      duration: ytItem.duration,
+      downloadable: true,
+      download_url: streamInfo.stream_url,
+    };
+    onTrackPress && onTrackPress(track);
+  };
+
+  const handleYoutubeDownload = async (ytItem) => {
+    const key = `youtube-${ytItem.id}`;
+    if (downloadingKey) return;
+
+    const streamInfo = resolvedStreams[ytItem.id] || (await resolveYoutubeTrack(ytItem));
+    if (!streamInfo) return;
+
+    setDownloadingKey(key);
+    setDownloadProgress(0);
+    try {
+      const localUri = FileSystem.documentDirectory + safeFilename(streamInfo.title || ytItem.title, streamInfo.ext || "mp3");
+
+      const downloadResumable = FileSystem.createDownloadResumable(
+        streamInfo.stream_url,
+        localUri,
+        {},
+        (progressEvent) => {
+          const pct =
+            progressEvent.totalBytesExpectedToWrite > 0
+              ? progressEvent.totalBytesWritten / progressEvent.totalBytesExpectedToWrite
+              : 0;
+          setDownloadProgress(pct);
+        }
+      );
+      await downloadResumable.downloadAsync();
+
+      const entry = {
+        id: key,
+        type: "audio",
+        title: streamInfo.title || ytItem.title,
+        artist: ytItem.uploader,
+        artwork: ytItem.thumbnail,
+        localUri,
+        duration: ytItem.duration || 0,
+        source: "youtube",
+        addedAt: Date.now(),
+      };
+      const existing = await getDownloads();
+      await saveDownloads([...existing, entry]);
+      setDownloadedIds((prev) => new Set(prev).add(key));
+    } catch (err) {
+      setError(err.message || "Download failed");
+    } finally {
+      setDownloadingKey(null);
+    }
+  };
+
+  const renderYoutubeRow = (ytItem) => {
+    const key = `youtube-${ytItem.id}`;
+    const isResolving = resolvingIds.has(ytItem.id);
+    const isDownloading = downloadingKey === key;
+    const isDownloaded = downloadedIds.has(key);
+
+    return (
+      <TouchableOpacity
+        key={key}
+        style={styles.row}
+        onPress={() => handleYoutubePress(ytItem)}
+        disabled={isResolving}
+      >
+        <Image source={ytItem.thumbnail ? { uri: ytItem.thumbnail } : undefined} style={styles.rowArt} />
+        <View style={styles.rowTextWrap}>
+          <Text numberOfLines={1} style={styles.rowTitle}>{ytItem.title}</Text>
+          <View style={styles.rowMetaRow}>
+            <Text numberOfLines={1} style={styles.rowArtist}>{ytItem.uploader}</Text>
+            <Text style={styles.providerBadge}>YouTube</Text>
+          </View>
+        </View>
+        <Text style={styles.rowDuration}>{formatDuration(ytItem.duration)}</Text>
+
+        {isResolving ? (
+          <View style={styles.skeletonIcon} />
+        ) : isDownloading ? (
+          <View style={styles.downloadWrap}>
+            <ActivityIndicator color="#fff" size="small" />
+            <Text style={styles.downloadPct}>{Math.round(downloadProgress * 100)}%</Text>
+          </View>
+        ) : isDownloaded ? (
+          <Text style={styles.downloadedGlyph}>Saved</Text>
+        ) : (
+          <TouchableOpacity
+            onPress={() => handleYoutubeDownload(ytItem)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={styles.downloadTouch}
+          >
+            <Text style={styles.downloadGlyph}>Download</Text>
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    );
   };
 
   const renderRow = (track) => {
@@ -203,6 +360,13 @@ export default function SearchScreen({ onTrackPress }) {
           <Text style={styles.hint}>Search across Audius, Deezer, Jamendo, ccMixter, and Archive.org.</Text>
         )}
 
+        {ytResults.length > 0 && (
+          <View style={{ marginTop: 20 }}>
+            <Text style={styles.sectionTitle}>From YouTube</Text>
+            {ytResults.map(renderYoutubeRow)}
+          </View>
+        )}
+
         {categoryEntries.map(([cat, items]) => (
           <View key={cat} style={{ marginTop: 20 }}>
             <Text style={styles.sectionTitle}>{categoryLabel(cat)}</Text>
@@ -264,6 +428,12 @@ const styles = StyleSheet.create({
   },
   rowDuration: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginRight: 8 },
 
+  skeletonIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
   downloadWrap: { flexDirection: "row", alignItems: "center", gap: 4 },
   downloadPct: { color: "#fff", fontSize: 10 },
   downloadTouch: {

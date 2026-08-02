@@ -9,7 +9,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "UIBackgroundModes": ["audio"]
+        "UIBackgroundModes": [
+          "audio"
+        ]
       }
     },
     "android": {
@@ -47,6 +49,19 @@
         }
       ],
       "expo-asset"
-    ]
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://nrighton233j-b24music.hf.space/api/updates/manifest",
+      "enabled": true,
+      "fallbackToCacheTimeout": 30000,
+      "codeSigningCertificate": "./certs/certificate.pem",
+      "codeSigningMetadata": {
+        "keyid": "main",
+        "alg": "rsa-v1_5-sha256"
+      }
+    }
   }
 }
