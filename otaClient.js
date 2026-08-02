@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
+import appJson from "./app.json";
 
 const API_BASE = "https://nrighton233j-b24music.hf.space";
 
@@ -7,7 +8,12 @@ const API_BASE = "https://nrighton233j-b24music.hf.space";
 // at build time), not some hardcoded string - so this stays correct
 // automatically as you bump versions for future releases.
 export function getCurrentVersion() {
-  return Constants.expoConfig?.version || Constants.nativeAppVersion || "0.0.0";
+  // Constants.expoConfig can be empty once an expo-updates OTA is active
+  // (our self-hosted manifest does not embed the full app config), and
+  // Constants.nativeAppVersion is not reliable in every build - so read
+  // straight from the static app.json bundled at build time instead,
+  // same approach already confirmed working in SettingsScreen.js.
+  return appJson.expo.version || Constants.expoConfig?.version || Constants.nativeAppVersion || "0.0.0";
 }
 
 // Talks to your own custom OTA backend (ota.py) - NOT expo-updates. This

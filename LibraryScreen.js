@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -50,6 +50,8 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [deviceVideo, setDeviceVideo] = useState([]);
   const [scanDenied, setScanDenied] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [scanErrorMsg, setScanErrorMsg] = useState(null);
+  const [lastScanCounts, setLastScanCounts] = useState(null);
   const [folders, setFolders] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -85,17 +87,35 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     loadAll();
   }, [loadAll]);
 
+  const hasAutoScanned = useRef(false);
+  useEffect(() => {
+    if (hasAutoScanned.current) return;
+    hasAutoScanned.current = true;
+    runScan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const runScan = useCallback(async () => {
     setScanning(true);
-    const result = await scanDeviceMedia();
-    setScanning(false);
-    if (!result.granted) {
-      setScanDenied(true);
-      return;
+    setScanErrorMsg(null);
+    try {
+      const result = await scanDeviceMedia();
+      if (!result.granted) {
+        setScanDenied(true);
+        setScanErrorMsg(result.error || "Permission not granted");
+        return;
+      }
+      setScanDenied(false);
+      setDeviceAudio(result.audio);
+      setDeviceVideo(result.video);
+      setLastScanCounts({ audio: result.audio.length, video: result.video.length });
+      if (result.error) setScanErrorMsg(result.error);
+    } catch (err) {
+      console.error("[runScan] unexpected error:", err);
+      setScanErrorMsg(err.message || "Unknown error during scan");
+    } finally {
+      setScanning(false);
     }
-    setScanDenied(false);
-    setDeviceAudio(result.audio);
-    setDeviceVideo(result.video);
   }, []);
 
   const onRefresh = async () => {
@@ -253,12 +273,20 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
           <>
             <TouchableOpacity style={styles.createTile} onPress={runScan} disabled={scanning}>
               <Text style={styles.createTileText}>
-                {scanning ? "Scanning..." : "Scan phone storage"}
+                {scanning ? "Scanning..." : "Rescan phone storage (find new files)"}
               </Text>
             </TouchableOpacity>
             {scanDenied && (
               <Text style={styles.emptyText}>
                 Storage permission was denied - enable it in your phone's app settings to see local videos here.
+              </Text>
+            )}
+            {!!scanErrorMsg && (
+              <Text style={[styles.emptyText, { color: "#FF6B6B" }]}>{scanErrorMsg}</Text>
+            )}
+            {!!lastScanCounts && !scanErrorMsg && (
+              <Text style={styles.emptyText}>
+                Last scan found {lastScanCounts.audio} audio and {lastScanCounts.video} video files on device.
               </Text>
             )}
             {videos.length === 0 ? (
@@ -274,7 +302,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
           <>
             <TouchableOpacity style={styles.createTile} onPress={runScan} disabled={scanning}>
               <Text style={styles.createTileText}>
-                {scanning ? "Scanning..." : "Scan phone storage"}
+                {scanning ? "Scanning..." : "Rescan phone storage (find new files)"}
               </Text>
             </TouchableOpacity>
             {scanDenied && (

@@ -50,12 +50,15 @@ const DRAWER_TILES = [
 // this screen doesn't assume any particular navigation library - wire them
 // up to whatever you're using (React Navigation, a simple state switch,
 // etc.) from the parent.
-export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress }) {
+export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress, onSettingsPress }) {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [activeChip, setActiveChip] = useState("All");
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Drawer animation: translateX runs from DRAWER_WIDTH (fully hidden, off
   // the right edge of the screen) to 0 (fully open). Using core Animated +
@@ -137,10 +140,13 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
   const fetchTrending = async () => {
     try {
       setError(null);
-      const res = await fetch(`${API_BASE}/api/music/trending?limit=15`);
+      const res = await fetch(`${API_BASE}/api/music/trending?limit=15&offset=0`);
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
-      setTracks(data.tracks || []);
+      const newTracks = data.tracks || [];
+      setTracks(newTracks);
+      setOffset(newTracks.length);
+      setHasMore(newTracks.length >= 15);
     } catch (err) {
       setError(err.message || "Couldn't load trending tracks");
     } finally {
@@ -155,7 +161,51 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
 
   const onRefresh = () => {
     setRefreshing(true);
+    setOffset(0);
+    setHasMore(true);
     fetchTrending();
+  };
+
+  // Infinite scroll: fetches the next page and appends, de-duping by
+  // provider+id. If the backend doesn't support offset (or we're at the
+  // end), the appended set will have 0 new items and we stop paginating
+  // instead of looping forever or showing duplicates.
+  const loadMoreTrending = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/music/trending?limit=15&offset=${offset}`);
+      if (!res.ok) throw new Error(`Server responded ${res.status}`);
+      const data = await res.json();
+      const incoming = data.tracks || [];
+
+      setTracks((prev) => {
+        const existingKeys = new Set(prev.map((t) => `${t.provider}-${t.id}`));
+        const fresh = incoming.filter((t) => !existingKeys.has(`${t.provider}-${t.id}`));
+        if (fresh.length === 0) {
+          setHasMore(false);
+          return prev;
+        }
+        setOffset(prev.length + fresh.length);
+        return [...prev, ...fresh];
+      });
+
+      if (incoming.length < 15) setHasMore(false);
+    } catch (err) {
+      // Silent fail on load-more - don't clobber the existing error state
+      // for an already-successful initial load.
+      setHasMore(false);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const handleScroll = ({ nativeEvent }) => {
+    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+    const distanceFromBottom = contentSize.height - (layoutMeasurement.height + contentOffset.y);
+    if (distanceFromBottom < 300) {
+      loadMoreTrending();
+    }
   };
 
   const displayedTracks = (() => {
@@ -182,13 +232,15 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />
         }
+        onScroll={handleScroll}
+        scrollEventThrottle={150}
       >
         {/* ---------- Header: avatar + greeting + search ---------- */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarInitial}>B</Text>
-            </View>
+            <TouchableOpacity style={styles.avatarCircle} onPress={onSettingsPress}>
+              <Text style={styles.avatarInitial}>⚙</Text>
+            </TouchableOpacity>
             <Text style={styles.greeting}>Hey there</Text>
           </View>
           <View style={styles.headerRight}>
@@ -249,6 +301,8 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
             ))}
           </View>
         )}
+
+        {loadingMore && <ActivityIndicator color="#fff" style={{ marginTop: 16 }} />}
 
         {/* ---------- Quick-access strip hinting at the Glass Drawer ---------- */}
         <Text style={styles.sectionTitle}>More</Text>

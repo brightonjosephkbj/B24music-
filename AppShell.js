@@ -16,7 +16,6 @@ const NAV_ITEMS = [
   { key: "home", label: "Home" },
   { key: "library", label: "Library" },
   { key: "search", label: "Search" },
-  { key: "settings", label: "Settings" },
 ];
 
 const ACCENT = "#FF6B6B";

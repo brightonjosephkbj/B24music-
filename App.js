@@ -130,6 +130,7 @@ export default function App() {
         onDrawerTilePress={goToDrawerScreen}
         onSearchPress={() => setActiveNav("search")}
         onPasteLinkPress={() => goToDrawerScreen("pasteUrl")}
+        onSettingsPress={() => setActiveNav("settings")}
         nowPlaying={nowPlaying}
       />
     );

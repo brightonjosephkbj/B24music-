@@ -105,9 +105,28 @@ export default function usePlaybackEngine(track) {
   }, [isVideo, videoPlayer]);
 
   const play = useCallback(() => {
-    if (isVideo) videoPlayer?.play();
-    else audioPlayer?.play();
-  }, [isVideo, videoPlayer, audioPlayer]);
+    if (isVideo) {
+      videoPlayer?.play();
+    } else {
+      // Lock-screen controls (title/artist/artwork + play/pause/skip) only
+      // show up if we tell the OS this player is the active one *before*
+      // starting playback - interruptionMode is already set to "doNotMix"
+      // in ensureAudioMode above, which the OS needs to associate the
+      // controls with this specific player correctly.
+      if (audioPlayer && track) {
+        try {
+          audioPlayer.setActiveForLockScreen(true, {
+            title: track.title || "Unknown title",
+            artist: track.artist || "Unknown artist",
+            artworkUrl: track.artwork || undefined,
+          });
+        } catch (err) {
+          console.warn("Failed to set lock screen metadata:", err);
+        }
+      }
+      audioPlayer?.play();
+    }
+  }, [isVideo, videoPlayer, audioPlayer, track]);
 
   const pause = useCallback(() => {
     if (isVideo) videoPlayer?.pause();
