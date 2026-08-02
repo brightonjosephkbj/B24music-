@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   Image,
   TouchableOpacity,
   TextInput,
@@ -32,7 +32,6 @@ const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
 const GLASS_BG = "rgba(255,255,255,0.14)";
 const GLASS_BORDER = "rgba(255,255,255,0.25)";
 
-// Order per your instruction: Videos, Folders, Playlists, Artists, Downloads.
 const TABS = ["Videos", "All Songs", "Folders", "Playlists", "Artists", "Downloads"];
 
 function formatDuration(sec) {
@@ -42,7 +41,6 @@ function formatDuration(sec) {
   return `${m}:${s}`;
 }
 
-// onTrackPress(item) - plays a track/video, wire to your player.
 export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [activeTab, setActiveTab] = useState("Downloads");
   const [downloads, setDownloads] = useState([]);
@@ -56,22 +54,17 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [playlists, setPlaylists] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Long-press context menu state
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuItem, setMenuItem] = useState(null);
 
-  // Create-folder / create-playlist prompt modal
   const [promptVisible, setPromptVisible] = useState(false);
-  const [promptMode, setPromptMode] = useState(null); // "folder" | "playlist"
+  const [promptMode, setPromptMode] = useState(null);
   const [promptValue, setPromptValue] = useState("");
 
-  // Add-to-playlist picker
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerTarget, setPickerTarget] = useState(null); // the item being added
+  const [pickerTarget, setPickerTarget] = useState(null);
 
-  // Saved images (from ArtScreen/ImageViewer's Save button) open here
-  // instead of being routed to the audio/video player.
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [imageViewerItems, setImageViewerItems] = useState([]);
   const [imageViewerIndex, setImageViewerIndex] = useState(0);
@@ -86,14 +79,6 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
-
-  const hasAutoScanned = useRef(false);
-  useEffect(() => {
-    if (hasAutoScanned.current) return;
-    hasAutoScanned.current = true;
-    runScan();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const runScan = useCallback(async () => {
     setScanning(true);
@@ -116,6 +101,16 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     } finally {
       setScanning(false);
     }
+  }, []);
+
+  // Auto-scan once per app session, on mount. Guarded with a ref so it
+  // never re-fires just from switching tabs back and forth.
+  const hasAutoScanned = useRef(false);
+  useEffect(() => {
+    if (hasAutoScanned.current) return;
+    hasAutoScanned.current = true;
+    runScan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onRefresh = async () => {
@@ -188,16 +183,22 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     loadAll();
   };
 
-  const appVideos = downloads.filter((d) => d.type === "video");
-  const appAudio = downloads.filter((d) => d.type === "audio");
-  const videos = [...appVideos, ...deviceVideo];
-  const allSongs = [...appAudio, ...deviceAudio];
-  const artistGroups = [...allSongs, ...videos].reduce((acc, d) => {
-    const key = d.artist || "Unknown Artist";
-    acc[key] = acc[key] || [];
-    acc[key].push(d);
-    return acc;
-  }, {});
+  // Memoized so these expensive merges/reduces only recompute when their
+  // actual inputs change, instead of on every render (this was previously
+  // recalculated from scratch on every single re-render of the screen).
+  const appVideos = useMemo(() => downloads.filter((d) => d.type === "video"), [downloads]);
+  const appAudio = useMemo(() => downloads.filter((d) => d.type === "audio"), [downloads]);
+  const videos = useMemo(() => [...appVideos, ...deviceVideo], [appVideos, deviceVideo]);
+  const allSongs = useMemo(() => [...appAudio, ...deviceAudio], [appAudio, deviceAudio]);
+  const artistGroups = useMemo(() => {
+    return [...allSongs, ...videos].reduce((acc, d) => {
+      const key = d.artist || "Unknown Artist";
+      acc[key] = acc[key] || [];
+      acc[key].push(d);
+      return acc;
+    }, {});
+  }, [allSongs, videos]);
+  const artistEntries = useMemo(() => Object.entries(artistGroups), [artistGroups]);
 
   const openImage = (item) => {
     const savedImages = downloads.filter((d) => d.type === "image");
@@ -217,26 +218,64 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     setImageViewerVisible(true);
   };
 
-  const renderTrackRow = (item) => (
-    <TouchableOpacity
-      key={item.id}
-      style={styles.row}
-      onPress={() => (item.type === "image" ? openImage(item) : onTrackPress && onTrackPress(item))}
-      onLongPress={(evt) => openMenu(evt, item)}
-      delayLongPress={300}
-    >
-      <Image source={item.artwork ? { uri: item.artwork } : undefined} style={styles.rowArt} />
-      <View style={styles.rowTextWrap}>
-        <Text numberOfLines={1} style={styles.rowTitle}>{item.title}</Text>
-        {!!item.artist && <Text numberOfLines={1} style={styles.rowArtist}>{item.artist}</Text>}
-      </View>
-      {item.type === "image" ? (
-        <Text style={styles.rowDuration}>Image</Text>
-      ) : (
-        <Text style={styles.rowDuration}>{formatDuration(item.duration)}</Text>
-      )}
-    </TouchableOpacity>
+  const renderTrackRow = useCallback(
+    ({ item }) => (
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => (item.type === "image" ? openImage(item) : onTrackPress && onTrackPress(item))}
+        onLongPress={(evt) => openMenu(evt, item)}
+        delayLongPress={300}
+      >
+        <Image source={item.artwork ? { uri: item.artwork } : undefined} style={styles.rowArt} />
+        <View style={styles.rowTextWrap}>
+          <Text numberOfLines={1} style={styles.rowTitle}>{item.title}</Text>
+          {!!item.artist && <Text numberOfLines={1} style={styles.rowArtist}>{item.artist}</Text>}
+        </View>
+        {item.type === "image" ? (
+          <Text style={styles.rowDuration}>Image</Text>
+        ) : (
+          <Text style={styles.rowDuration}>{formatDuration(item.duration)}</Text>
+        )}
+      </TouchableOpacity>
+    ),
+    [downloads, onTrackPress]
   );
+
+  const keyExtractor = useCallback((item) => item.id, []);
+
+  const scanHeader = (deniedMsg) => (
+    <>
+      <TouchableOpacity style={styles.createTile} onPress={runScan} disabled={scanning}>
+        <Text style={styles.createTileText}>
+          {scanning ? "Scanning..." : "Rescan phone storage (find new files)"}
+        </Text>
+      </TouchableOpacity>
+      {scanDenied && <Text style={styles.emptyText}>{deniedMsg}</Text>}
+      {!!scanErrorMsg && <Text style={[styles.emptyText, { color: "#FF6B6B" }]}>{scanErrorMsg}</Text>}
+      {!!lastScanCounts && !scanErrorMsg && (
+        <Text style={styles.emptyText}>
+          Last scan found {lastScanCounts.audio} audio and {lastScanCounts.video} video files on device.
+        </Text>
+      )}
+    </>
+  );
+
+  let listData = [];
+  let listEmptyText = "";
+  let listHeader = null;
+
+  if (activeTab === "Videos") {
+    listData = videos;
+    listEmptyText = "No videos yet - download some, or scan your phone storage above.";
+    listHeader = scanHeader("Storage permission was denied - enable it in your phone's app settings to see local videos here.");
+  } else if (activeTab === "All Songs") {
+    listData = allSongs;
+    listEmptyText = "No songs yet - download some, or scan your phone storage above.";
+    listHeader = scanHeader("Storage permission was denied - enable it in your phone's app settings to see local songs here.");
+  } else if (activeTab === "Downloads") {
+    listData = downloads;
+    listEmptyText = "Nothing downloaded yet.";
+  }
 
   return (
     <View style={styles.root}>
@@ -249,78 +288,48 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRow}>
-        {TABS.map((tab) => {
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabRow}
+        data={TABS}
+        keyExtractor={(t) => t}
+        renderItem={({ item: tab }) => {
           const active = tab === activeTab;
           return (
             <TouchableOpacity
-              key={tab}
               onPress={() => setActiveTab(tab)}
               style={[styles.tab, active && styles.tabActive]}
             >
               <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab}</Text>
             </TouchableOpacity>
           );
-        })}
-      </ScrollView>
+        }}
+      />
 
-      <ScrollView
-        contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
-      >
-        {/* ---------- Videos ---------- */}
-        {activeTab === "Videos" && (
-          <>
-            <TouchableOpacity style={styles.createTile} onPress={runScan} disabled={scanning}>
-              <Text style={styles.createTileText}>
-                {scanning ? "Scanning..." : "Rescan phone storage (find new files)"}
-              </Text>
-            </TouchableOpacity>
-            {scanDenied && (
-              <Text style={styles.emptyText}>
-                Storage permission was denied - enable it in your phone's app settings to see local videos here.
-              </Text>
-            )}
-            {!!scanErrorMsg && (
-              <Text style={[styles.emptyText, { color: "#FF6B6B" }]}>{scanErrorMsg}</Text>
-            )}
-            {!!lastScanCounts && !scanErrorMsg && (
-              <Text style={styles.emptyText}>
-                Last scan found {lastScanCounts.audio} audio and {lastScanCounts.video} video files on device.
-              </Text>
-            )}
-            {videos.length === 0 ? (
-              <Text style={styles.emptyText}>No videos yet - download some, or scan your phone storage above.</Text>
-            ) : (
-              videos.map(renderTrackRow)
-            )}
-          </>
-        )}
+      {(activeTab === "Videos" || activeTab === "All Songs" || activeTab === "Downloads") && (
+        <FlatList
+          data={listData}
+          keyExtractor={keyExtractor}
+          renderItem={renderTrackRow}
+          contentContainerStyle={styles.listContent}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={<Text style={styles.emptyText}>{listEmptyText}</Text>}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          removeClippedSubviews
+        />
+      )}
 
-        {/* ---------- All Songs (app downloads + scanned local mp3s) ---------- */}
-        {activeTab === "All Songs" && (
-          <>
-            <TouchableOpacity style={styles.createTile} onPress={runScan} disabled={scanning}>
-              <Text style={styles.createTileText}>
-                {scanning ? "Scanning..." : "Rescan phone storage (find new files)"}
-              </Text>
-            </TouchableOpacity>
-            {scanDenied && (
-              <Text style={styles.emptyText}>
-                Storage permission was denied - enable it in your phone's app settings to see local songs here.
-              </Text>
-            )}
-            {allSongs.length === 0 ? (
-              <Text style={styles.emptyText}>No songs yet - download some, or scan your phone storage above.</Text>
-            ) : (
-              allSongs.map(renderTrackRow)
-            )}
-          </>
-        )}
-
-        {/* ---------- Folders ---------- */}
-        {activeTab === "Folders" && (
-          <>
+      {activeTab === "Folders" && (
+        <FlatList
+          data={folders}
+          keyExtractor={(f) => f.id}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+          ListHeaderComponent={
             <TouchableOpacity
               style={styles.createTile}
               onPress={() => {
@@ -331,25 +340,29 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
             >
               <Text style={styles.createTileText}>+ New Folder</Text>
             </TouchableOpacity>
-            {folders.length === 0 ? (
-              <Text style={styles.emptyText}>No folders yet — create one to organize anything: songs, videos, or playlists together.</Text>
-            ) : (
-              folders.map((f) => (
-                <View key={f.id} style={styles.folderRow}>
-                  <Text style={styles.folderName}>{f.name}</Text>
-                  <Text style={styles.folderCount}>{f.itemIds.length} items</Text>
-                  <TouchableOpacity onPress={async () => { await deleteFolder(f.id); loadAll(); }}>
-                    <Text style={styles.folderDelete}>Delete</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
-          </>
-        )}
+          }
+          ListEmptyComponent={
+            <Text style={styles.emptyText}>No folders yet — create one to organize anything: songs, videos, or playlists together.</Text>
+          }
+          renderItem={({ item: f }) => (
+            <View style={styles.folderRow}>
+              <Text style={styles.folderName}>{f.name}</Text>
+              <Text style={styles.folderCount}>{f.itemIds.length} items</Text>
+              <TouchableOpacity onPress={async () => { await deleteFolder(f.id); loadAll(); }}>
+                <Text style={styles.folderDelete}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        />
+      )}
 
-        {/* ---------- Playlists ---------- */}
-        {activeTab === "Playlists" && (
-          <>
+      {activeTab === "Playlists" && (
+        <FlatList
+          data={playlists}
+          keyExtractor={(p) => p.id}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+          ListHeaderComponent={
             <TouchableOpacity
               style={styles.createTile}
               onPress={() => {
@@ -360,44 +373,37 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
             >
               <Text style={styles.createTileText}>+ New Playlist</Text>
             </TouchableOpacity>
-            {playlists.length === 0 ? (
-              <Text style={styles.emptyText}>No playlists yet.</Text>
-            ) : (
-              playlists.map((p) => (
-                <View key={p.id} style={styles.folderRow}>
-                  <Text style={styles.folderName}>{p.name}</Text>
-                  <Text style={styles.folderCount}>{p.trackIds.length} tracks</Text>
-                </View>
-              ))
-            )}
-          </>
-        )}
+          }
+          ListEmptyComponent={<Text style={styles.emptyText}>No playlists yet.</Text>}
+          renderItem={({ item: p }) => (
+            <View style={styles.folderRow}>
+              <Text style={styles.folderName}>{p.name}</Text>
+              <Text style={styles.folderCount}>{p.trackIds.length} tracks</Text>
+            </View>
+          )}
+        />
+      )}
 
-        {/* ---------- Artists ---------- */}
-        {activeTab === "Artists" && (
-          Object.keys(artistGroups).length === 0 ? (
-            <Text style={styles.emptyText}>No artists yet — download some tracks first.</Text>
-          ) : (
-            Object.entries(artistGroups).map(([artist, tracks]) => (
-              <View key={artist} style={styles.folderRow}>
-                <Text style={styles.folderName}>{artist}</Text>
-                <Text style={styles.folderCount}>{tracks.length} tracks</Text>
-              </View>
-            ))
-          )
-        )}
+      {activeTab === "Artists" && (
+        <FlatList
+          data={artistEntries}
+          keyExtractor={([artist]) => artist}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+          ListEmptyComponent={<Text style={styles.emptyText}>No artists yet — download some tracks first.</Text>}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={7}
+          removeClippedSubviews
+          renderItem={({ item: [artist, tracks] }) => (
+            <View style={styles.folderRow}>
+              <Text style={styles.folderName}>{artist}</Text>
+              <Text style={styles.folderCount}>{tracks.length} tracks</Text>
+            </View>
+          )}
+        />
+      )}
 
-        {/* ---------- Downloads (everything, audio + video) ---------- */}
-        {activeTab === "Downloads" && (
-          downloads.length === 0 ? (
-            <Text style={styles.emptyText}>Nothing downloaded yet.</Text>
-          ) : (
-            downloads.map(renderTrackRow)
-          )
-        )}
-      </ScrollView>
-
-      {/* ---------- Long-press context menu ---------- */}
       <ContextMenuCard
         visible={menuVisible}
         anchor={menuAnchor}
@@ -405,7 +411,6 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         onClose={() => setMenuVisible(false)}
       />
 
-      {/* ---------- Create / rename prompt ---------- */}
       <Modal visible={promptVisible} transparent animationType="fade" onRequestClose={() => setPromptVisible(false)}>
         <View style={styles.promptBackdrop}>
           <View style={styles.promptCard}>
@@ -432,7 +437,6 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         </View>
       </Modal>
 
-      {/* ---------- Add-to-playlist picker ---------- */}
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <TouchableOpacity style={styles.promptBackdrop} activeOpacity={1} onPress={() => setPickerVisible(false)}>
           <View style={styles.promptCard}>
