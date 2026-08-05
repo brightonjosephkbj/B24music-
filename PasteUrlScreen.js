@@ -12,8 +12,9 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
-import { resolveUrl, backendDownloadUrl } from "./urlFetchClient";
+import { resolveUrl, backendDownloadUrl, lightningExtract } from "./urlFetchClient";
 import { getDownloads, saveDownloads } from "./libraryStorage";
+import { useDownloads } from "./DownloadsContext";
 
 const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
 const GLASS_BG = "rgba(255,255,255,0.14)";
@@ -29,6 +30,7 @@ function safeFilename(title, ext) {
 // track shape (title/artist/artwork/type + stream_url or localUri) every
 // other screen already passes into usePlaybackEngine.
 export default function PasteUrlScreen({ onTrackPress, onBack }) {
+  const { startDownload, updateProgress, finishDownload } = useDownloads();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null); // resolved track-shaped object
@@ -59,6 +61,8 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
     if (!result) return;
     setDownloading(true);
     setDownloadProgress(0);
+    const dlKey = `pasteurl_${result.provider}_${Date.now()}`;
+    startDownload(dlKey, { title: result.title });
     try {
       // Where the bytes actually come from depends on how this link was
       // resolved:
@@ -76,6 +80,11 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
       let remoteUrl;
       if (mode === "video" && result.method === "scrape") {
         remoteUrl = result.downloadUrl;
+      } else if (result.method === "ytdlp") {
+        // Route through Lightning.ai's yt-dlp setup (PO-token capable,
+        // avoids HF's datacenter-IP blocking) instead of HF's own /download.
+        const lightningResult = await lightningExtract(result.sourceUrl, mode, "medium");
+        remoteUrl = lightningResult.stream_url;
       } else {
         const backendSourceUrl = result.method === "scrape" ? result.downloadUrl : result.sourceUrl;
         remoteUrl = backendDownloadUrl(backendSourceUrl, mode);
@@ -94,6 +103,7 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
               ? progressEvent.totalBytesWritten / progressEvent.totalBytesExpectedToWrite
               : 0;
           setDownloadProgress(pct);
+          updateProgress(dlKey, pct);
         }
       );
 
@@ -131,6 +141,7 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
       setError(err.message || "Download failed");
     } finally {
       setDownloading(false);
+      finishDownload(dlKey);
     }
   };
 
@@ -156,15 +167,26 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
         </Text>
 
         <View style={styles.inputRow}>
-          <TextInput
-            value={url}
-            onChangeText={setUrl}
-            placeholder="https://..."
-            placeholderTextColor="rgba(255,255,255,0.5)"
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={styles.input}
-          />
+          <View style={styles.inputWrap}>
+            <TextInput
+              value={url}
+              onChangeText={setUrl}
+              placeholder="https://..."
+              placeholderTextColor="rgba(255,255,255,0.5)"
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.input}
+            />
+            {!!url && (
+              <TouchableOpacity
+                onPress={() => setUrl("")}
+                style={styles.clearButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={styles.clearButtonText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
           <TouchableOpacity onPress={onFetch} style={styles.fetchButton}>
             <Text style={styles.fetchButtonText}>Go</Text>
           </TouchableOpacity>
@@ -233,16 +255,28 @@ const styles = StyleSheet.create({
   subtitle: { color: "rgba(255,255,255,0.75)", fontSize: 13, marginBottom: 20, lineHeight: 18 },
 
   inputRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  inputWrap: { flex: 1, position: "relative", justifyContent: "center" },
   input: {
-    flex: 1,
     backgroundColor: GLASS_BG,
     borderWidth: 1,
     borderColor: GLASS_BORDER,
     borderRadius: 14,
     paddingHorizontal: 14,
+    paddingRight: 36,
     paddingVertical: 12,
     color: "#fff",
   },
+  clearButton: {
+    position: "absolute",
+    right: 10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  clearButtonText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   fetchButton: { backgroundColor: ACCENT, borderRadius: 14, paddingHorizontal: 20, justifyContent: "center" },
   fetchButtonText: { color: "#fff", fontWeight: "700" },
 

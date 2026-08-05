@@ -143,3 +143,21 @@ export function backendDownloadUrl(pageUrl, mode) {
   const params = new URLSearchParams({ url: pageUrl, mode });
   return `${API_BASE}/api/fetch/download?${params.toString()}`;
 }
+
+// Resolves a URL to a real, directly-downloadable stream_url via Lightning.ai's
+// yt-dlp setup (fast, PO-token capable, avoids HF's datacenter-IP blocking).
+// Returns { stream_url, title, mimetype, ext } - caller downloads straight
+// from stream_url, which points at Lightning's own /media/<job_id> route.
+export async function lightningExtract(pageUrl, mode = "audio", quality = "medium") {
+  const params = new URLSearchParams({ url: pageUrl, mode, quality });
+  const res = await fetch(`${API_BASE}/api/fetch/lightning_stream?${params.toString()}`);
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    throw new Error(`Server responded ${res.status}`);
+  }
+  if (data.error) throw new Error(data.error);
+  if (!res.ok) throw new Error(`Server responded ${res.status}`);
+  return data;
+}

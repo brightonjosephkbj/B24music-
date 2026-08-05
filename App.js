@@ -1,6 +1,6 @@
 import "react-native-gesture-handler"; // must be the very first import, before anything else
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
@@ -22,6 +22,45 @@ import FullscreenVideoPlayer from "./FullscreenVideoPlayer";
 import SettingsScreen from "./SettingsScreen";
 import UpdatePrompt from "./UpdatePrompt";
 import { checkForUpdate } from "./otaClient";
+import { DownloadsProvider } from "./DownloadsContext";
+import MusicInfo from "expo-music-info-2";
+import { getCachedArtwork, setCachedArtwork } from "./deviceArtworkCache";
+import { registerForPushNotificationsAsync } from "./notifications";
+
+// Device-scanned tracks skip ID3 reading in bulk (see localMediaScanner.js -
+// hundreds of native-bridge calls at once was the actual lag source). So
+// artwork is fetched lazily, one file, only when that track actually starts
+// playing - cached after the first read so repeat plays are instant.
+async function resolveDeviceArtwork(track, setNowPlaying) {
+  if (!track || track.source !== "device" || track.artwork) return;
+
+  const cached = await getCachedArtwork(track.id);
+  if (cached) {
+    setNowPlaying((current) =>
+      current && current.id === track.id ? { ...current, artwork: cached } : current
+    );
+    return;
+  }
+
+  try {
+    const meta = await MusicInfo.getMusicInfoAsync(track.localUri, {
+      title: false,
+      artist: false,
+      album: false,
+      picture: true,
+    });
+    const uri = meta?.picture?.pictureData;
+    if (!uri) return; // file just has no embedded art - fine, leave it blank
+    setCachedArtwork(track.id, uri); // fire-and-forget
+    // Guard: only apply if this is still the track actually playing -
+    // otherwise a quick skip could paint art onto the wrong track.
+    setNowPlaying((current) =>
+      current && current.id === track.id ? { ...current, artwork: uri } : current
+    );
+  } catch (err) {
+    // Non-critical - file just stays without art this session.
+  }
+}
 
 export default function App() {
   const [activeNav, setActiveNav] = useState("home");
@@ -41,7 +80,19 @@ export default function App() {
       })
       .catch(() => {});
   }, []);
+
+  // Requests notification permission once on launch - covers both the
+  // lock-screen playback notification (Android 13+) and push token
+  // registration in one grant. Token is currently just logged; wire it
+  // to a backend endpoint once you've got somewhere to send it.
+  useEffect(() => {
+    registerForPushNotificationsAsync().then((token) => {
+      if (token) console.log("[push] token:", token);
+    });
+  }, []);
+
   const [playerExpanded, setPlayerExpanded] = useState(false); // State A vs State B
+  const [shuffleOn, setShuffleOn] = useState(false);
 
   // The queue nowPlaying was picked from, plus its index in that queue.
   // Whatever screen starts playback (Home's trending row, Library, a search
@@ -56,6 +107,21 @@ export default function App() {
   // share the exact same live player - never two separate instances of the
   // same track fighting each other.
   const engine = usePlaybackEngine(nowPlaying);
+
+  // Auto-advance once the current track finishes. lastAutoAdvanceIndex
+  // guards against firing twice for the same finish event (didJustFinish
+  // can stay true for more than one render before the next track loads).
+  const lastAutoAdvanceIndex = useRef(null);
+  useEffect(() => {
+    if (engine.didJustFinish) {
+      if (lastAutoAdvanceIndex.current !== queueIndex) {
+        lastAutoAdvanceIndex.current = queueIndex;
+        nextTrack();
+      }
+    } else {
+      lastAutoAdvanceIndex.current = null;
+    }
+  }, [engine.didJustFinish, queueIndex]);
 
   const goToDrawerScreen = (key) => setActiveDrawerScreen(key);
   const backFromDrawerScreen = () => setActiveDrawerScreen(null);
@@ -73,6 +139,7 @@ export default function App() {
     setQueue(nextQueue);
     setQueueIndex(idx === -1 ? 0 : idx);
     setNowPlaying(track);
+    resolveDeviceArtwork(track, setNowPlaying);
     // Video tracks jump straight to full-screen per spec; audio tracks stay
     // collapsed to the mini disc until the user taps it.
     if (track?.type === "video") {
@@ -87,6 +154,7 @@ export default function App() {
     if (!track) return;
     setQueueIndex(idx);
     setNowPlaying(track);
+    resolveDeviceArtwork(track, setNowPlaying);
     if (track?.type === "video") {
       setPlayerExpanded(true);
     }
@@ -96,7 +164,15 @@ export default function App() {
   // no queue yet (nothing has been played).
   const nextTrack = () => {
     if (!queue.length) return;
-    playAtIndex((queueIndex + 1) % queue.length);
+    if (shuffleOn && queue.length > 1) {
+      let idx;
+      do {
+        idx = Math.floor(Math.random() * queue.length);
+      } while (idx === queueIndex);
+      playAtIndex(idx);
+    } else {
+      playAtIndex((queueIndex + 1) % queue.length);
+    }
   };
   const prevTrack = () => {
     if (!queue.length) return;
@@ -146,6 +222,7 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+    <DownloadsProvider>
       <AppShell
         activeNav={activeNav}
         onNavPress={setActiveNav}
@@ -168,6 +245,8 @@ export default function App() {
           onNext={nextTrack}
           onPrev={prevTrack}
           onPlayTrack={playTrack}
+          shuffleOn={shuffleOn}
+          onShuffleToggle={setShuffleOn}
         />
       )}
       {playerExpanded && nowPlaying && isVideo && (
@@ -188,6 +267,7 @@ export default function App() {
       )}
 
       <StatusBar style="light" />
+    </DownloadsProvider>
     </GestureHandlerRootView>
   );
 }

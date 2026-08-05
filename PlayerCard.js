@@ -11,6 +11,7 @@ import {
   Animated,
   ActivityIndicator,
   Alert,
+  PanResponder,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import ContextMenuCard from "./ContextMenuCard";
@@ -49,7 +50,7 @@ function activeLyricIndex(lyrics, position) {
 // onNext / onPrev: skip within the real queue lifted up in App.js.
 // onPlayTrack: play a specific track (e.g. a tapped related-track result),
 // separate from onNext so skip and "play this" no longer fight over one prop.
-export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, onPlayTrack, onShuffleToggle }) {
+export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, onPlayTrack, onShuffleToggle, shuffleOn: initialShuffleOn }) {
   const [panel, setPanel] = useState(0); // 0 = Photo, 1 = Lyrics, 2 = Related
   const scrollRef = useRef(null);
   const lyricsScrollRef = useRef(null);
@@ -65,7 +66,7 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
   const [related, setRelated] = useState([]);
   const [relatedLoading, setRelatedLoading] = useState(true);
 
-  const [shuffleOn, setShuffleOn] = useState(false);
+  const [shuffleOn, setShuffleOn] = useState(!!initialShuffleOn);
 
   // ---- Download-to-library state ----
   const [libDownloading, setLibDownloading] = useState(false);
@@ -133,6 +134,32 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
 
   const [moreVisible, setMoreVisible] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState(null);
+
+  // ---- Swipe-down-to-minimize ----
+  const dragY = useRef(new Animated.Value(0)).current;
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 4 && gesture.dy > 0,
+      onPanResponderMove: (_, gesture) => {
+        if (gesture.dy > 0) dragY.setValue(gesture.dy);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > 120 || gesture.vy > 0.8) {
+          Animated.timing(dragY, {
+            toValue: CARD_HEIGHT,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            dragY.setValue(0);
+            onCollapse && onCollapse();
+          });
+        } else {
+          Animated.spring(dragY, { toValue: 0, useNativeDriver: true, bounciness: 6 }).start();
+        }
+      },
+    })
+  ).current;
 
   // ---- Breathing artwork pulse while playing ----
   const breathe = useRef(new Animated.Value(1)).current;
@@ -345,8 +372,12 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
   };
 
   return (
-    <View style={styles.overlay}>
+    <Animated.View style={[styles.overlay, { transform: [{ translateY: dragY }] }]}>
       <LinearGradient colors={["#0d0d0f", "#1a1a1a"]} style={StyleSheet.absoluteFill} />
+
+      <View style={styles.dragHandleArea} {...panResponder.panHandlers}>
+        <View style={styles.dragHandleBar} />
+      </View>
 
         <TouchableOpacity
           onPress={() => onCollapse && onCollapse()}
@@ -356,20 +387,20 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
           <Text style={styles.closeButtonText}>✕</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={downloadToLibrary}
-          disabled={libDownloading || libDownloaded}
-          style={styles.downloadLibButton}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          {libDownloading ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : libDownloaded ? (
-            <Text style={styles.downloadLibButtonText}>✓</Text>
-          ) : (
-            <Text style={styles.downloadLibButtonText}>⬇</Text>
-          )}
-        </TouchableOpacity>
+        {!libDownloaded && (
+          <TouchableOpacity
+            onPress={downloadToLibrary}
+            disabled={libDownloading}
+            style={styles.downloadLibButton}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            {libDownloading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.downloadLibButtonText}>⬇</Text>
+            )}
+          </TouchableOpacity>
+        )}
 
       <ScrollView
         ref={scrollRef}
@@ -502,7 +533,7 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
         actions={moreActions}
         onClose={() => setMoreVisible(false)}
       />
-    </View>
+    </Animated.View>
   );
 }
 
@@ -513,6 +544,13 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden",
   },
   panelScroll: { flex: 1 },
+  dragHandleArea: {
+    position: "absolute", top: 0, left: 0, right: 0, height: 28, zIndex: 9,
+    justifyContent: "center", alignItems: "center",
+  },
+  dragHandleBar: {
+    width: 40, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.35)", marginTop: 10,
+  },
   closeButton: {
     position: "absolute", top: 14, right: 18, zIndex: 10,
     width: 34, height: 34, borderRadius: 17,

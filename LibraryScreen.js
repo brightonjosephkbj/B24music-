@@ -27,6 +27,7 @@ import {
 import ContextMenuCard from "./ContextMenuCard";
 import ImageViewer from "./ImageViewer";
 import { scanDeviceMedia } from "./localMediaScanner";
+import { useDownloads } from "./DownloadsContext";
 
 const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
 const GLASS_BG = "rgba(255,255,255,0.14)";
@@ -41,17 +42,10 @@ function formatDuration(sec) {
   return `${m}:${s}`;
 }
 
-// Module-level (not component state) cache of the last device scan.
-// LibraryScreen fully unmounts/remounts every time the user switches away
-// from and back to the Library tab (App.js has no persistent navigator),
-// so a useRef guard inside the component is NOT enough to make the scan
-// run only once per session - it was silently re-scanning up to 500
-// audio + 500 video files from the phone every single time the tab was
-// opened, which is what was actually causing the lag. A module-level
-// variable lives for the JS engine's lifetime and survives remounts.
 let deviceMediaCache = null; // { audio: [...], video: [...] } | null
 
 export default function LibraryScreen({ onTrackPress, onSearchPress }) {
+  const { activeDownloads, pauseDownload, resumeDownload, cancelDownload } = useDownloads();
   const [activeTab, setActiveTab] = useState("Downloads");
   const [downloads, setDownloads] = useState([]);
   const [deviceAudio, setDeviceAudio] = useState(deviceMediaCache?.audio || []);
@@ -64,6 +58,10 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [playlists, setPlaylists] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [selectedFolder, setSelectedFolder] = useState(null);
+  const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+  const [selectedArtist, setSelectedArtist] = useState(null);
+
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuItem, setMenuItem] = useState(null);
@@ -71,7 +69,6 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [promptVisible, setPromptVisible] = useState(false);
   const [promptMode, setPromptMode] = useState(null);
   const [promptValue, setPromptValue] = useState("");
-
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerTarget, setPickerTarget] = useState(null);
 
@@ -114,12 +111,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     }
   }, []);
 
-  // Auto-scan once per app session, on mount. Guarded with a ref so it
-  // never re-fires just from switching tabs back and forth.
   useEffect(() => {
-    // Skip entirely on remount if we already have a cached scan from
-    // earlier this app session - this is what actually stops the lag,
-    // the previous useRef guard did not survive tab-switch remounts.
     if (deviceMediaCache) return;
     runScan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -195,9 +187,6 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     loadAll();
   };
 
-  // Memoized so these expensive merges/reduces only recompute when their
-  // actual inputs change, instead of on every render (this was previously
-  // recalculated from scratch on every single re-render of the screen).
   const appVideos = useMemo(() => downloads.filter((d) => d.type === "video"), [downloads]);
   const appAudio = useMemo(() => downloads.filter((d) => d.type === "audio"), [downloads]);
   const videos = useMemo(() => [...appVideos, ...deviceVideo], [appVideos, deviceVideo]);
@@ -211,6 +200,47 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     }, {});
   }, [allSongs, videos]);
   const artistEntries = useMemo(() => Object.entries(artistGroups), [artistGroups]);
+
+  const folderItems = useMemo(() => {
+    if (!selectedFolder) return [];
+    const idSet = new Set(selectedFolder.itemIds || []);
+    return downloads.filter((d) => idSet.has(d.id));
+  }, [selectedFolder, downloads]);
+
+  const playlistItems = useMemo(() => {
+    if (!selectedPlaylist) return [];
+    const idSet = new Set(selectedPlaylist.trackIds || []);
+    return downloads.filter((d) => idSet.has(d.id));
+  }, [selectedPlaylist, downloads]);
+
+  const artistTracks = useMemo(() => {
+    if (!selectedArtist) return [];
+    return artistGroups[selectedArtist] || [];
+  }, [selectedArtist, artistGroups]);
+
+  useEffect(() => {
+    if (selectedFolder) {
+      const fresh = folders.find((f) => f.id === selectedFolder.id);
+      if (fresh && fresh !== selectedFolder) setSelectedFolder(fresh);
+      if (!fresh) setSelectedFolder(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [folders]);
+
+  useEffect(() => {
+    if (selectedPlaylist) {
+      const fresh = playlists.find((p) => p.id === selectedPlaylist.id);
+      if (fresh && fresh !== selectedPlaylist) setSelectedPlaylist(fresh);
+      if (!fresh) setSelectedPlaylist(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playlists]);
+
+  const closeDetail = () => {
+    setSelectedFolder(null);
+    setSelectedPlaylist(null);
+    setSelectedArtist(null);
+  };
 
   const openImage = (item) => {
     const savedImages = downloads.filter((d) => d.type === "image");
@@ -234,7 +264,18 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     ({ item }) => (
       <TouchableOpacity
         style={styles.row}
-        onPress={() => (item.type === "image" ? openImage(item) : onTrackPress && onTrackPress(item))}
+        onPress={() => {
+          if (item.type === "image") return openImage(item);
+          if (!onTrackPress) return;
+          const sourceQueue =
+            selectedFolder ? folderItems :
+            selectedPlaylist ? playlistItems :
+            selectedArtist ? artistTracks :
+            activeTab === "Videos" ? videos :
+            activeTab === "All Songs" ? allSongs :
+            downloads;
+          onTrackPress(item, sourceQueue);
+        }}
         onLongPress={(evt) => openMenu(evt, item)}
         delayLongPress={300}
       >
@@ -250,7 +291,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         )}
       </TouchableOpacity>
     ),
-    [downloads, onTrackPress]
+    [downloads, onTrackPress, activeTab, videos, allSongs, selectedFolder, selectedPlaylist, selectedArtist, folderItems, playlistItems, artistTracks]
   );
 
   const keyExtractor = useCallback((item) => item.id, []);
@@ -272,6 +313,24 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     </>
   );
 
+  const detailMode = !!(selectedFolder || selectedPlaylist || selectedArtist);
+  let detailData = [];
+  let detailTitle = "";
+  let detailEmptyText = "";
+  if (selectedFolder) {
+    detailData = folderItems;
+    detailTitle = selectedFolder.name;
+    detailEmptyText = "This folder is empty.";
+  } else if (selectedPlaylist) {
+    detailData = playlistItems;
+    detailTitle = selectedPlaylist.name;
+    detailEmptyText = "This playlist is empty.";
+  } else if (selectedArtist) {
+    detailData = artistTracks;
+    detailTitle = selectedArtist;
+    detailEmptyText = "No tracks for this artist.";
+  }
+
   let listData = [];
   let listEmptyText = "";
   let listHeader = null;
@@ -287,6 +346,40 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   } else if (activeTab === "Downloads") {
     listData = downloads;
     listEmptyText = "Nothing downloaded yet.";
+    const activeList = Array.from(activeDownloads.values());
+    if (activeList.length > 0) {
+      listHeader = (
+        <View style={{ marginBottom: 16 }}>
+          {activeList.map((d) => (
+            <View key={d.key} style={styles.activeDownloadRow}>
+              <Text numberOfLines={1} style={styles.activeDownloadTitle}>{d.title}</Text>
+              <View style={styles.activeDownloadTrack}>
+                <View style={[styles.activeDownloadFill, { width: `${Math.round(d.progress * 100)}%` }]} />
+              </View>
+              <View style={styles.activeDownloadFooter}>
+                <Text style={styles.activeDownloadPct}>
+                  {d.status === "paused" ? "Paused - " : ""}{Math.round(d.progress * 100)}%
+                </Text>
+                <View style={styles.activeDownloadActions}>
+                  {d.status === "paused" ? (
+                    <TouchableOpacity onPress={() => resumeDownload(d.key)} style={styles.activeDownloadBtn}>
+                      <Text style={styles.activeDownloadBtnText}>Resume</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity onPress={() => pauseDownload(d.key)} style={styles.activeDownloadBtn}>
+                      <Text style={styles.activeDownloadBtnText}>Pause</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={() => cancelDownload(d.key)} style={styles.activeDownloadBtn}>
+                    <Text style={[styles.activeDownloadBtnText, { color: "#FF6B6B" }]}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      );
+    }
   }
 
   return (
@@ -294,126 +387,151 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
       <LinearGradient colors={GRADIENT_COLORS} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
 
       <View style={styles.header}>
-        <Text style={styles.title}>Your library</Text>
+        {detailMode ? (
+          <TouchableOpacity onPress={closeDetail} style={styles.backButtonRow} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Text style={styles.backGlyph}>‹</Text>
+            <Text style={styles.title} numberOfLines={1}>{detailTitle}</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.title}>Your library</Text>
+        )}
         <TouchableOpacity style={styles.iconButton} onPress={onSearchPress}>
           <Text style={styles.iconGlyph}>Search</Text>
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabRow}
-        data={TABS}
-        keyExtractor={(t) => t}
-        renderItem={({ item: tab }) => {
-          const active = tab === activeTab;
-          return (
-            <TouchableOpacity
-              onPress={() => setActiveTab(tab)}
-              style={[styles.tab, active && styles.tabActive]}
-            >
-              <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab}</Text>
-            </TouchableOpacity>
-          );
-        }}
-      />
-
-      {(activeTab === "Videos" || activeTab === "All Songs" || activeTab === "Downloads") && (
+      {!detailMode && (
         <FlatList
-          data={listData}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabRow}
+          data={TABS}
+          keyExtractor={(t) => t}
+          renderItem={({ item: tab }) => {
+            const active = tab === activeTab;
+            return (
+              <TouchableOpacity
+                onPress={() => setActiveTab(tab)}
+                style={[styles.tab, active && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, active && styles.tabTextActive]}>{tab}</Text>
+              </TouchableOpacity>
+            );
+          }}
+        />
+      )}
+
+      {detailMode ? (
+        <FlatList
+          data={detailData}
           keyExtractor={keyExtractor}
           renderItem={renderTrackRow}
           contentContainerStyle={styles.listContent}
-          ListHeaderComponent={listHeader}
-          ListEmptyComponent={<Text style={styles.emptyText}>{listEmptyText}</Text>}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+          ListEmptyComponent={<Text style={styles.emptyText}>{detailEmptyText}</Text>}
           initialNumToRender={12}
           maxToRenderPerBatch={12}
           windowSize={7}
           removeClippedSubviews
         />
-      )}
-
-      {activeTab === "Folders" && (
-        <FlatList
-          data={folders}
-          keyExtractor={(f) => f.id}
-          contentContainerStyle={styles.listContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
-          ListHeaderComponent={
-            <TouchableOpacity
-              style={styles.createTile}
-              onPress={() => {
-                setPromptMode("folder");
-                setPromptValue("");
-                setPromptVisible(true);
-              }}
-            >
-              <Text style={styles.createTileText}>+ New Folder</Text>
-            </TouchableOpacity>
-          }
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>No folders yet — create one to organize anything: songs, videos, or playlists together.</Text>
-          }
-          renderItem={({ item: f }) => (
-            <View style={styles.folderRow}>
-              <Text style={styles.folderName}>{f.name}</Text>
-              <Text style={styles.folderCount}>{f.itemIds.length} items</Text>
-              <TouchableOpacity onPress={async () => { await deleteFolder(f.id); loadAll(); }}>
-                <Text style={styles.folderDelete}>Delete</Text>
-              </TouchableOpacity>
-            </View>
+      ) : (
+        <>
+          {(activeTab === "Videos" || activeTab === "All Songs" || activeTab === "Downloads") && (
+            <FlatList
+              data={listData}
+              keyExtractor={keyExtractor}
+              renderItem={renderTrackRow}
+              contentContainerStyle={styles.listContent}
+              ListHeaderComponent={listHeader}
+              ListEmptyComponent={<Text style={styles.emptyText}>{listEmptyText}</Text>}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+              initialNumToRender={12}
+              maxToRenderPerBatch={12}
+              windowSize={7}
+              removeClippedSubviews
+            />
           )}
-        />
-      )}
 
-      {activeTab === "Playlists" && (
-        <FlatList
-          data={playlists}
-          keyExtractor={(p) => p.id}
-          contentContainerStyle={styles.listContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
-          ListHeaderComponent={
-            <TouchableOpacity
-              style={styles.createTile}
-              onPress={() => {
-                setPromptMode("playlist");
-                setPromptValue("");
-                setPromptVisible(true);
-              }}
-            >
-              <Text style={styles.createTileText}>+ New Playlist</Text>
-            </TouchableOpacity>
-          }
-          ListEmptyComponent={<Text style={styles.emptyText}>No playlists yet.</Text>}
-          renderItem={({ item: p }) => (
-            <View style={styles.folderRow}>
-              <Text style={styles.folderName}>{p.name}</Text>
-              <Text style={styles.folderCount}>{p.trackIds.length} tracks</Text>
-            </View>
+          {activeTab === "Folders" && (
+            <FlatList
+              data={folders}
+              keyExtractor={(f) => f.id}
+              contentContainerStyle={styles.listContent}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+              ListHeaderComponent={
+                <TouchableOpacity
+                  style={styles.createTile}
+                  onPress={() => {
+                    setPromptMode("folder");
+                    setPromptValue("");
+                    setPromptVisible(true);
+                  }}
+                >
+                  <Text style={styles.createTileText}>+ New Folder</Text>
+                </TouchableOpacity>
+              }
+              ListEmptyComponent={
+                <Text style={styles.emptyText}>No folders yet — create one to organize anything: songs, videos, or playlists together.</Text>
+              }
+              renderItem={({ item: f }) => (
+                <TouchableOpacity style={styles.folderRow} onPress={() => setSelectedFolder(f)}>
+                  <Text style={styles.folderName}>{f.name}</Text>
+                  <Text style={styles.folderCount}>{f.itemIds.length} items</Text>
+                  <TouchableOpacity onPress={async () => { await deleteFolder(f.id); loadAll(); }}>
+                    <Text style={styles.folderDelete}>Delete</Text>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              )}
+            />
           )}
-        />
-      )}
 
-      {activeTab === "Artists" && (
-        <FlatList
-          data={artistEntries}
-          keyExtractor={([artist]) => artist}
-          contentContainerStyle={styles.listContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
-          ListEmptyComponent={<Text style={styles.emptyText}>No artists yet — download some tracks first.</Text>}
-          initialNumToRender={12}
-          maxToRenderPerBatch={12}
-          windowSize={7}
-          removeClippedSubviews
-          renderItem={({ item: [artist, tracks] }) => (
-            <View style={styles.folderRow}>
-              <Text style={styles.folderName}>{artist}</Text>
-              <Text style={styles.folderCount}>{tracks.length} tracks</Text>
-            </View>
+          {activeTab === "Playlists" && (
+            <FlatList
+              data={playlists}
+              keyExtractor={(p) => p.id}
+              contentContainerStyle={styles.listContent}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+              ListHeaderComponent={
+                <TouchableOpacity
+                  style={styles.createTile}
+                  onPress={() => {
+                    setPromptMode("playlist");
+                    setPromptValue("");
+                    setPromptVisible(true);
+                  }}
+                >
+                  <Text style={styles.createTileText}>+ New Playlist</Text>
+                </TouchableOpacity>
+              }
+              ListEmptyComponent={<Text style={styles.emptyText}>No playlists yet.</Text>}
+              renderItem={({ item: p }) => (
+                <TouchableOpacity style={styles.folderRow} onPress={() => setSelectedPlaylist(p)}>
+                  <Text style={styles.folderName}>{p.name}</Text>
+                  <Text style={styles.folderCount}>{p.trackIds.length} tracks</Text>
+                </TouchableOpacity>
+              )}
+            />
           )}
-        />
+
+          {activeTab === "Artists" && (
+            <FlatList
+              data={artistEntries}
+              keyExtractor={([artist]) => artist}
+              contentContainerStyle={styles.listContent}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+              ListEmptyComponent={<Text style={styles.emptyText}>No artists yet — download some tracks first.</Text>}
+              initialNumToRender={12}
+              maxToRenderPerBatch={12}
+              windowSize={7}
+              removeClippedSubviews
+              renderItem={({ item: [artist, tracks] }) => (
+                <TouchableOpacity style={styles.folderRow} onPress={() => setSelectedArtist(artist)}>
+                  <Text style={styles.folderName}>{artist}</Text>
+                  <Text style={styles.folderCount}>{tracks.length} tracks</Text>
+                </TouchableOpacity>
+              )}
+            />
+          )}
+        </>
       )}
 
       <ContextMenuCard
@@ -491,6 +609,8 @@ const styles = StyleSheet.create({
     paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14,
   },
   title: { color: "#fff", fontSize: 22, fontWeight: "700" },
+  backButtonRow: { flexDirection: "row", alignItems: "center", flex: 1, marginRight: 12, gap: 6 },
+  backGlyph: { color: "#fff", fontSize: 26, fontWeight: "700" },
   iconButton: {
     paddingHorizontal: 14, height: 40, borderRadius: 20, backgroundColor: GLASS_BG,
     borderWidth: 1, borderColor: GLASS_BORDER, justifyContent: "center", alignItems: "center",
@@ -531,6 +651,19 @@ const styles = StyleSheet.create({
   folderDelete: { color: "#FF6B6B", fontSize: 12, fontWeight: "600" },
 
   emptyText: { color: "rgba(255,255,255,0.6)", textAlign: "center", marginTop: 30, lineHeight: 20 },
+
+  activeDownloadRow: {
+    backgroundColor: GLASS_BG, borderWidth: 1, borderColor: GLASS_BORDER, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 10, marginBottom: 8,
+  },
+  activeDownloadTitle: { color: "#fff", fontSize: 13, fontWeight: "600", marginBottom: 6 },
+  activeDownloadTrack: { height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" },
+  activeDownloadFill: { height: 4, borderRadius: 2, backgroundColor: "#6BCB77" },
+  activeDownloadPct: { color: "rgba(255,255,255,0.6)", fontSize: 10 },
+  activeDownloadFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
+  activeDownloadActions: { flexDirection: "row", gap: 10 },
+  activeDownloadBtn: { paddingVertical: 2, paddingHorizontal: 4 },
+  activeDownloadBtnText: { color: "#fff", fontSize: 11, fontWeight: "700" },
 
   promptBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
   promptCard: {

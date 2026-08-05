@@ -197,6 +197,10 @@ export default function usePlaybackEngine(track) {
   return {
     isVideo,
     isPlaying,
+    // True for the single status update where expo-audio reports the
+    // current track just reached its end. Video finish detection isn't
+    // wired up yet - only audio tracks report this for now.
+    didJustFinish: !isVideo && !!audioStatus?.didJustFinish,
     position: isVideo ? videoPosition : audioStatus?.currentTime || 0,
     duration: isVideo ? videoPlayer?.duration || 0 : audioStatus?.duration || 0,
     isBuffering: isVideo

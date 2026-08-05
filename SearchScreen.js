@@ -15,6 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import * as FileSystem from "expo-file-system/legacy";
 import { getDownloads, saveDownloads } from "./libraryStorage";
+import { useDownloads } from "./DownloadsContext";
 
 const API_BASE = "https://nrighton233j-b24music.hf.space";
 const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
@@ -60,6 +61,7 @@ const QUALITY_OPTIONS = [
 
 // onTrackPress(track) - plays a search result, same track shape everywhere else uses.
 export default function SearchScreen({ onTrackPress }) {
+  const { startDownload, updateProgress, finishDownload, registerControls, isCancelled } = useDownloads();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -110,19 +112,26 @@ export default function SearchScreen({ onTrackPress }) {
         fetch(`${API_BASE}/api/fetch/search_by_name?${params.toString()}`),
       ]);
 
+      let catList = [];
       if (libraryRes.status === "fulfilled" && libraryRes.value.ok) {
         const data = await libraryRes.value.json();
-        setCategories(data.categories || {});
+        const cats = data.categories || {};
+        setCategories(cats);
+        catList = Object.values(cats).flat();
       } else {
         setCategories({});
       }
 
+      let ytList = [];
       if (ytRes.status === "fulfilled" && ytRes.value.ok) {
         const ytData = await ytRes.value.json();
-        setYtResults(ytData.results || []);
+        ytList = ytData.results || [];
+        setYtResults(ytList);
       } else {
         setYtResults([]);
       }
+
+      syncDownloadedIds(catList, ytList);
     } catch (err) {
       setError(err.message || "Search failed");
       setCategories({});
@@ -132,11 +141,38 @@ export default function SearchScreen({ onTrackPress }) {
     }
   };
 
+  // Checks which of the current results already exist in the persisted
+  // downloads list (not just this session's downloadedIds), so "Saved"
+  // shows correctly even for tracks downloaded in a previous session.
+  const syncDownloadedIds = async (catItems, ytItems) => {
+    try {
+      const existing = await getDownloads();
+      const existingIds = new Set(existing.map((d) => d.id));
+      const next = new Set();
+      catItems.forEach((t) => {
+        const k = trackKey(t);
+        if (existingIds.has(k)) next.add(k);
+      });
+      ytItems.forEach((yt) => {
+        QUALITY_OPTIONS.forEach((opt) => {
+          const k = `youtube-${yt.id}-${opt.key}`;
+          if (existingIds.has(k)) next.add(k);
+        });
+      });
+      if (next.size > 0) {
+        setDownloadedIds((prev) => new Set([...prev, ...next]));
+      }
+    } catch {
+      // Non-critical - worst case the button just re-shows "Download"
+    }
+  };
+
   const downloadTrack = async (track) => {
     const key = trackKey(track);
     if (downloadingKey) return;
     setDownloadingKey(key);
     setDownloadProgress(0);
+    startDownload(key, { title: track.title });
     try {
       const localUri = FileSystem.documentDirectory + safeFilename(track.title, "mp3");
 
@@ -150,9 +186,16 @@ export default function SearchScreen({ onTrackPress }) {
               ? progressEvent.totalBytesWritten / progressEvent.totalBytesExpectedToWrite
               : 0;
           setDownloadProgress(pct);
+          updateProgress(key, pct);
         }
       );
+      registerControls(key, {
+        pause: () => downloadResumable.pauseAsync().catch(() => {}),
+        resume: () => downloadResumable.resumeAsync().catch(() => {}),
+        cancel: () => downloadResumable.pauseAsync().catch(() => {}),
+      });
       await downloadResumable.downloadAsync();
+      if (isCancelled(key)) return;
 
       const entry = {
         id: key,
@@ -169,9 +212,10 @@ export default function SearchScreen({ onTrackPress }) {
       await saveDownloads([...existing, entry]);
       setDownloadedIds((prev) => new Set(prev).add(key));
     } catch (err) {
-      setError(err.message || "Download failed");
+      if (!isCancelled(key)) setError(err.message || "Download failed");
     } finally {
       setDownloadingKey(null);
+      finishDownload(key);
     }
   };
 
@@ -234,6 +278,7 @@ export default function SearchScreen({ onTrackPress }) {
 
     setDownloadingKey(key);
     setDownloadProgress(0);
+    startDownload(key, { title: streamInfo.title || ytItem.title });
     try {
       const localUri = FileSystem.documentDirectory + safeFilename(streamInfo.title || ytItem.title, streamInfo.ext || option.ext);
 
@@ -247,9 +292,16 @@ export default function SearchScreen({ onTrackPress }) {
               ? progressEvent.totalBytesWritten / progressEvent.totalBytesExpectedToWrite
               : 0;
           setDownloadProgress(pct);
+          updateProgress(key, pct);
         }
       );
+      registerControls(key, {
+        pause: () => downloadResumable.pauseAsync().catch(() => {}),
+        resume: () => downloadResumable.resumeAsync().catch(() => {}),
+        cancel: () => downloadResumable.pauseAsync().catch(() => {}),
+      });
       await downloadResumable.downloadAsync();
+      if (isCancelled(key)) return;
 
       const entry = {
         id: key,
@@ -266,9 +318,10 @@ export default function SearchScreen({ onTrackPress }) {
       await saveDownloads([...existing, entry]);
       setDownloadedIds((prev) => new Set(prev).add(key));
     } catch (err) {
-      setError(err.message || "Download failed");
+      if (!isCancelled(key)) setError(err.message || "Download failed");
     } finally {
       setDownloadingKey(null);
+      finishDownload(key);
     }
   };
 
@@ -481,6 +534,8 @@ export default function SearchScreen({ onTrackPress }) {
 
                 {QUALITY_OPTIONS.map((option) => {
                   const resolving = resolvingIds.has(`${sheetItem.id}-${option.key}`);
+                  const optionKey = `youtube-${sheetItem.id}-${option.key}`;
+                  const optionDownloaded = downloadedIds.has(optionKey);
                   return (
                     <View key={option.key} style={styles.sheetOptionRow}>
                       <Text style={styles.sheetOptionLabel}>{option.label}</Text>
@@ -491,9 +546,12 @@ export default function SearchScreen({ onTrackPress }) {
                           <TouchableOpacity onPress={() => handleSheetPlay(option)} style={styles.sheetActionButton}>
                             <Text style={styles.sheetActionText}>Play</Text>
                           </TouchableOpacity>
-                          <TouchableOpacity onPress={() => handleSheetDownload(option)} style={styles.sheetActionButton}>
-                            <Text style={styles.sheetActionText}>Save</Text>
-                          </TouchableOpacity>
+                          {!optionDownloaded && (
+                            <TouchableOpacity onPress={() => handleSheetDownload(option)} style={styles.sheetActionButton}>
+                              <Text style={styles.sheetActionText}>Save</Text>
+                            </TouchableOpacity>
+                          )}
+                          {optionDownloaded && <Text style={styles.downloadedGlyph}>Saved</Text>}
                         </View>
                       )}
                     </View>

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Image } from "react-native";
 import { VideoView } from "expo-video";
+import { useDownloads } from "./DownloadsContext";
 
 // Shared shell: renders whichever screen is active as children, then
 // overlays the persistent bottom nav + mini player trigger on top of it.
@@ -33,6 +34,25 @@ export default function AppShell({
   onSkipNext,      // skip to the next track in the queue
   onSkipPrev,      // skip to the previous track in the queue
 }) {
+  const { hasActiveDownloads } = useDownloads();
+
+  // Flickering blue dot while any download is active.
+  const dotOpacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    let loop;
+    if (hasActiveDownloads) {
+      loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(dotOpacity, { toValue: 0.2, duration: 500, useNativeDriver: true }),
+          Animated.timing(dotOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
+        ])
+      );
+      loop.start();
+    } else {
+      dotOpacity.setValue(1);
+    }
+    return () => loop && loop.stop();
+  }, [hasActiveDownloads]);
   const discRotation = useRef(new Animated.Value(0)).current;
   const spinLoop = useRef(null);
 
@@ -77,6 +97,7 @@ export default function AppShell({
             <View style={[styles.navPill, nowPlaying && styles.navPillCompact]}>
               {NAV_ITEMS.map((item) => {
                 const active = item.key === activeNav;
+                const showDot = item.key === "library" && hasActiveDownloads;
                 return (
                   <TouchableOpacity
                     key={item.key}
@@ -87,15 +108,18 @@ export default function AppShell({
                     ]}
                     onPress={() => onNavPress && onNavPress(item.key)}
                   >
-                    <Text
-                      style={[
-                        styles.navItemText,
-                        nowPlaying && styles.navItemTextCompact,
-                        active && styles.navItemTextActive,
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
+                    <View style={styles.navItemLabelRow}>
+                      <Text
+                        style={[
+                          styles.navItemText,
+                          nowPlaying && styles.navItemTextCompact,
+                          active && styles.navItemTextActive,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                      {showDot && <Animated.View style={[styles.downloadDot, { opacity: dotOpacity }]} />}
+                    </View>
                   </TouchableOpacity>
                 );
               })}
@@ -117,10 +141,14 @@ export default function AppShell({
                 {!isVideo ? (
                   <TouchableOpacity onPress={onExpandPress} style={styles.discWrap}>
                     <Animated.View style={[styles.disc, { transform: [{ rotate: spinDeg }] }]}>
-                      <Image
-                        source={nowPlaying.artwork ? { uri: nowPlaying.artwork } : undefined}
-                        style={styles.discArt}
-                      />
+                      {!!nowPlaying.artwork && (
+                        <Image
+                          source={{ uri: nowPlaying.artwork }}
+                          style={styles.discArt}
+                          resizeMode="cover"
+                          onError={(e) => console.warn("[disc artwork] failed to load:", nowPlaying.artwork, e.nativeEvent?.error)}
+                        />
+                      )}
                       <View style={styles.discHole} />
                     </Animated.View>
                   </TouchableOpacity>
@@ -180,6 +208,8 @@ const styles = StyleSheet.create({
   navItemCompact: { paddingHorizontal: 7 },
   navItemActive: { backgroundColor: ACCENT },
   navItemText: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "600" },
+  navItemLabelRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  downloadDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#4EA1FF" },
   navItemTextCompact: { fontSize: 11 },
   navItemTextActive: { color: "#fff" },
 
@@ -206,7 +236,7 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: "rgba(255,255,255,0.3)", overflow: "hidden",
     justifyContent: "center", alignItems: "center",
   },
-  discArt: { ...StyleSheet.absoluteFillObject, borderRadius: 22 },
+  discArt: { width: "100%", height: "100%", borderRadius: 22, position: "absolute", top: 0, left: 0 },
   discHole: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#000", borderWidth: 1, borderColor: "rgba(255,255,255,0.4)" },
 
   // Video mini box: rectangular instead of circular, shows the actual
