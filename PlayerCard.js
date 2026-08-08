@@ -18,7 +18,9 @@ import ContextMenuCard from "./ContextMenuCard";
 import * as FileSystem from "expo-file-system/legacy";
 import { addDownload, isDownloaded } from "./libraryStorage";
 
-const API_BASE = "https://nrighton233j-b24music.hf.space";
+import { gatewayHeaders } from "./apiClient";
+
+const API_BASE = "https://gateway-cah4.onrender.com";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_HEIGHT = Dimensions.get("window").height * 0.7;
 
@@ -232,7 +234,7 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
     const params = new URLSearchParams({ artist: track.artist, title: track.title });
     if (track.duration) params.set("duration", String(Math.round(track.duration)));
 
-    fetch(`${API_BASE}/api/music/lyrics?${params.toString()}`)
+    fetch(`${API_BASE}/api/apicache/api/music/lyrics?${params.toString()}`, { headers: gatewayHeaders() })
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -259,7 +261,7 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
     }
 
     const params = new URLSearchParams({ track: track.title, artist: track.artist });
-    fetch(`${API_BASE}/api/music/lastfm/similar?${params.toString()}`)
+    fetch(`${API_BASE}/api/apicache/api/music/lastfm/similar?${params.toString()}`, { headers: gatewayHeaders() })
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -362,7 +364,7 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
   const playRelated = async (item) => {
     try {
       const params = new URLSearchParams({ q: `${item.artist} ${item.title}`, limit: "1" });
-      const res = await fetch(`${API_BASE}/api/music/search?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/api/apicache/api/music/search?${params.toString()}`, { headers: gatewayHeaders() });
       const data = await res.json();
       const found = data.tracks && data.tracks[0];
       if (found && onPlayTrack) onPlayTrack(found);

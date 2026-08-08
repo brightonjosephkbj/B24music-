@@ -14,7 +14,9 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { WebView } from "react-native-webview";
 
-const API_BASE = "https://nrighton233j-b24music.hf.space";
+import { gatewayHeaders } from "./apiClient";
+
+const API_BASE = "https://gateway-cah4.onrender.com";
 const ACCENT = "#6BCB77"; // News tile accent from the Glass Drawer
 
 const CATEGORIES = ["general", "world", "business", "technology", "sports", "entertainment"];
@@ -53,7 +55,7 @@ export default function NewsScreen({ onBack }) {
       setError(null);
       const params = new URLSearchParams({ limit: "20" });
       if (cat && cat !== "general") params.set("category", cat);
-      const res = await fetch(`${API_BASE}/api/news/headlines?${params.toString()}`);
+      const res = await fetch(`${API_BASE}/api/apicache/api/news/headlines?${params.toString()}`, { headers: gatewayHeaders() });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
       setArticles(data.articles || []);

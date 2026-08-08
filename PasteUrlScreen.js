@@ -8,12 +8,22 @@ import {
   Image,
   ActivityIndicator,
   ScrollView,
+  Modal,
+  Pressable,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
 import * as FileSystem from "expo-file-system/legacy";
 import * as MediaLibrary from "expo-media-library";
-import { resolveUrl, backendDownloadUrl, lightningExtract } from "./urlFetchClient";
-import { getDownloads, saveDownloads } from "./libraryStorage";
+import {
+  resolveUrl,
+  backendDownloadUrl,
+  lightningExtract,
+  isSpotifyPlaylistUrl,
+  fetchSpotifyPlaylist,
+  searchYoutubeMatch,
+} from "./urlFetchClient";
+import { getDownloads, saveDownloads, createPlaylist, addTrackToPlaylist, getPlaylists, updatePlaylist } from "./libraryStorage";
 import { useDownloads } from "./DownloadsContext";
 
 const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
@@ -21,24 +31,42 @@ const GLASS_BG = "rgba(255,255,255,0.14)";
 const GLASS_BORDER = "rgba(255,255,255,0.25)";
 const ACCENT = "#FF6B6B";
 
+const SPOTIFY_QUALITY_OPTIONS = [
+  { key: "audio_high", quality: "high", ext: "mp3", label: "High Quality (MP3)" },
+  { key: "audio_medium", quality: "medium", ext: "mp3", label: "Medium Quality (MP3)" },
+];
+const SPOTIFY_SHEET_THRESHOLD = 5;
+const SPOTIFY_DEFAULT_OPTION = SPOTIFY_QUALITY_OPTIONS[1];
+
 function safeFilename(title, ext) {
   const clean = (title || "download").replace(/[^A-Za-z0-9 _-]/g, "").trim() || "download";
   return `${clean}.${ext}`;
 }
 
-// onTrackPress(track) - plays whatever was resolved, using the exact same
-// track shape (title/artist/artwork/type + stream_url or localUri) every
-// other screen already passes into usePlaybackEngine.
+function formatDuration(sec) {
+  if (!sec && sec !== 0) return "";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+
 export default function PasteUrlScreen({ onTrackPress, onBack }) {
-  const { startDownload, updateProgress, finishDownload } = useDownloads();
+  const { startDownload, updateProgress, finishDownload, registerControls, isCancelled } = useDownloads();
+
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null); // resolved track-shaped object
   const [error, setError] = useState(null);
 
+  const [result, setResult] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadedEntry, setDownloadedEntry] = useState(null);
+
+  const [spotifyPlaylist, setSpotifyPlaylist] = useState(null);
+  const [spotifyPlaylistId, setSpotifyPlaylistId] = useState(null);
+  const [spotifyBatchRunning, setSpotifyBatchRunning] = useState(false);
+  const [spotifyBatchProgress, setSpotifyBatchProgress] = useState({ current: 0, total: 0 });
+  const [spotifyQualitySheetOpen, setSpotifyQualitySheetOpen] = useState(false);
 
   const onFetch = async () => {
     const trimmed = url.trim();
@@ -47,6 +75,50 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
     setError(null);
     setResult(null);
     setDownloadedEntry(null);
+    setSpotifyPlaylist(null);
+    setSpotifyPlaylistId(null);
+
+    if (isSpotifyPlaylistUrl(trimmed)) {
+      try {
+        const data = await fetchSpotifyPlaylist(trimmed);
+
+        // Same Spotify playlist pasted again? Reuse the existing playlist
+        // instead of creating a duplicate, and pre-mark whichever tracks
+        // are already downloaded so the batch only fetches what's missing.
+        const existingLists = await getPlaylists();
+        const existing = data.playlist_id
+          ? existingLists.find((p) => p.spotifySourceId === data.playlist_id)
+          : null;
+
+        let alreadyDownloadedIds = new Set();
+        if (existing) {
+          setSpotifyPlaylistId(existing.id);
+          const allDownloads = await getDownloads();
+          const existingTrackIds = new Set(existing.trackIds || []);
+          allDownloads.forEach((d) => {
+            if (d.spotifyId && existingTrackIds.has(d.id)) alreadyDownloadedIds.add(d.spotifyId);
+          });
+        }
+
+        setSpotifyPlaylist({
+          title: data.playlist_title || "Playlist",
+          art: data.playlist_art || null,
+          sourceId: data.playlist_id || null,
+          tracks: (data.tracks || []).map((t, i) => ({
+            ...t,
+            _key: i,
+            selected: false,
+            downloaded: !!(t.spotify_id && alreadyDownloadedIds.has(t.spotify_id)),
+          })),
+        });
+      } catch (err) {
+        setError(err.message || "Couldn't read that playlist");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     try {
       const resolved = await resolveUrl(trimmed);
       setResult(resolved);
@@ -64,25 +136,10 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
     const dlKey = `pasteurl_${result.provider}_${Date.now()}`;
     startDownload(dlKey, { title: result.title });
     try {
-      // Where the bytes actually come from depends on how this link was
-      // resolved:
-      //  - "scrape": we already found a direct file URL on the phone -
-      //    download straight from it, no backend involved at all.
-      //  - "ytdlp": we only have metadata so far - the real file only gets
-      //    produced by the backend's yt-dlp endpoint, which also handles
-      //    audio-vs-video and the ffmpeg conversion.
-      // Video from a "scrape" result is already a direct file URL - download
-      // it straight from the source, no backend involved. Audio always needs
-      // ffmpeg extraction though, so it goes through the backend either way;
-      // for a scraped result we hand the backend the raw media URL we already
-      // found (result.downloadUrl) instead of the original page, so it can
-      // convert it directly without re-scraping anything itself.
       let remoteUrl;
       if (mode === "video" && result.method === "scrape") {
         remoteUrl = result.downloadUrl;
       } else if (result.method === "ytdlp") {
-        // Route through Lightning.ai's yt-dlp setup (PO-token capable,
-        // avoids HF's datacenter-IP blocking) instead of HF's own /download.
         const lightningResult = await lightningExtract(result.sourceUrl, mode, "medium");
         remoteUrl = lightningResult.stream_url;
       } else {
@@ -106,7 +163,6 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
           updateProgress(dlKey, pct);
         }
       );
-
       await downloadResumable.downloadAsync();
 
       try {
@@ -115,9 +171,6 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
           await MediaLibrary.saveToLibraryAsync(localUri);
         }
       } catch (mediaErr) {
-        // Non-fatal: the file still downloaded and plays fine from the
-        // app's own storage even if it couldn't be mirrored into the
-        // public MediaLibrary.
         console.warn("Couldn't save to public MediaLibrary:", mediaErr);
       }
 
@@ -135,7 +188,6 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
 
       const existing = await getDownloads();
       await saveDownloads([...existing, entry]);
-
       setDownloadedEntry(entry);
     } catch (err) {
       setError(err.message || "Download failed");
@@ -145,15 +197,139 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
     }
   };
 
-  // Playable immediately if we scraped a direct stream URL; otherwise only
-  // playable once the yt-dlp download has actually finished.
   const canPlay = !!(result && (result.method === "scrape" || downloadedEntry));
   const playTarget = result?.method === "scrape" ? result : downloadedEntry;
+
+  const toggleSpotifyTrack = (key) => {
+    setSpotifyPlaylist((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        tracks: prev.tracks.map((t) => (t._key === key ? { ...t, selected: !t.selected } : t)),
+      };
+    });
+  };
+
+  const selectedSpotifyTracks = spotifyPlaylist ? spotifyPlaylist.tracks.filter((t) => t.selected && !t.downloaded) : [];
+
+  const onSpotifyDownloadPress = () => {
+    if (selectedSpotifyTracks.length === 0) return;
+    if (selectedSpotifyTracks.length <= SPOTIFY_SHEET_THRESHOLD) {
+      setSpotifyQualitySheetOpen(true);
+    } else {
+      runSpotifyBatch(SPOTIFY_DEFAULT_OPTION);
+    }
+  };
+
+  const runSpotifyBatch = async (option) => {
+    setSpotifyQualitySheetOpen(false);
+    const tracksToRun = spotifyPlaylist.tracks.filter((t) => t.selected && !t.downloaded);
+    if (tracksToRun.length === 0) return;
+
+    setSpotifyBatchRunning(true);
+    setSpotifyBatchProgress({ current: 0, total: tracksToRun.length });
+
+    let playlistId = spotifyPlaylistId;
+    if (!playlistId) {
+      const playlist = await createPlaylist(spotifyPlaylist.title, spotifyPlaylist.art);
+      playlistId = playlist.id;
+      if (spotifyPlaylist.sourceId) {
+        await updatePlaylist(playlistId, { spotifySourceId: spotifyPlaylist.sourceId });
+      }
+      setSpotifyPlaylistId(playlistId);
+    }
+
+    for (let i = 0; i < tracksToRun.length; i++) {
+      const track = tracksToRun[i];
+      setSpotifyBatchProgress({ current: i + 1, total: tracksToRun.length });
+
+      const dlKey = `spotify_${playlistId}_${track._key}`;
+      startDownload(dlKey, { title: `${track.artist} - ${track.title}` });
+
+      try {
+        const match = await searchYoutubeMatch(`${track.artist} ${track.title}`);
+        if (!match) {
+          console.warn(`No YouTube match found for "${track.title}" by ${track.artist}`);
+          continue;
+        }
+
+        const streamInfo = await lightningExtract(match.url, "audio", option.quality);
+        if (isCancelled(dlKey)) continue;
+
+        const localUri = FileSystem.documentDirectory + safeFilename(`${track.artist} - ${track.title}`, streamInfo.ext || option.ext);
+
+        const downloadResumable = FileSystem.createDownloadResumable(
+          streamInfo.stream_url,
+          localUri,
+          {},
+          (progressEvent) => {
+            const pct =
+              progressEvent.totalBytesExpectedToWrite > 0
+                ? progressEvent.totalBytesWritten / progressEvent.totalBytesExpectedToWrite
+                : 0;
+            updateProgress(dlKey, pct);
+          }
+        );
+        registerControls(dlKey, {
+          pause: () => downloadResumable.pauseAsync().catch(() => {}),
+          resume: () => downloadResumable.resumeAsync().catch(() => {}),
+          cancel: () => downloadResumable.pauseAsync().catch(() => {}),
+        });
+
+        await downloadResumable.downloadAsync();
+        if (isCancelled(dlKey)) continue;
+
+        const entryId = dlKey;
+        const entry = {
+          id: entryId,
+          type: "audio",
+          title: track.title,
+          artist: track.artist,
+          artwork: track.album_art || spotifyPlaylist.art,
+          localUri,
+          duration: Math.round((track.duration_ms || 0) / 1000),
+          source: "spotify",
+          spotifyId: track.spotify_id || null,
+          addedAt: Date.now(),
+        };
+
+        const existing = await getDownloads();
+        await saveDownloads([...existing, entry]);
+        await addTrackToPlaylist(playlistId, entryId);
+
+        setSpotifyPlaylist((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            tracks: prev.tracks.map((t) => (t._key === track._key ? { ...t, downloaded: true, selected: false } : t)),
+          };
+        });
+      } catch (err) {
+        console.warn(`Spotify track download failed for "${track.title}":`, err);
+      } finally {
+        finishDownload(dlKey);
+      }
+    }
+
+    setSpotifyBatchRunning(false);
+  };
+
+  const spotifyAllSelected = spotifyPlaylist ? spotifyPlaylist.tracks.every((t) => t.downloaded || t.selected) : false;
+  const toggleSelectAllSpotify = () => {
+    setSpotifyPlaylist((prev) => {
+      if (!prev) return prev;
+      const nextSelected = !spotifyAllSelected;
+      return {
+        ...prev,
+        tracks: prev.tracks.map((t) => (t.downloaded ? t : { ...t, selected: nextSelected })),
+      };
+    });
+  };
 
   return (
     <View style={styles.root}>
       <LinearGradient colors={GRADIENT_COLORS} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
           <TouchableOpacity onPress={onBack} style={styles.backButton}>
             <Text style={styles.backText}>Back</Text>
@@ -163,7 +339,8 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
         </View>
         <Text style={styles.subtitle}>
           We try to grab the video straight from the page first - no server involved.
-          If the site hides it, we fall back to a backend fetch.
+          If the site hides it, we fall back to a backend fetch. Spotify playlist links
+          import the full track list so you can pick which songs to download.
         </Text>
 
         <View style={styles.inputRow}>
@@ -195,6 +372,45 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
         {loading && <ActivityIndicator color="#fff" style={{ marginTop: 20 }} />}
 
         {!!error && <Text style={styles.errorText}>{error}</Text>}
+
+        {spotifyPlaylist && (
+          <View style={styles.spotifyCard}>
+            <View style={styles.spotifyHeaderRow}>
+              <Image source={spotifyPlaylist.art ? { uri: spotifyPlaylist.art } : undefined} style={styles.spotifyArt} />
+              <View style={{ flex: 1, marginLeft: 14 }}>
+                <Text numberOfLines={2} style={styles.spotifyTitle}>{spotifyPlaylist.title}</Text>
+                <Text style={styles.spotifySubtitle}>{spotifyPlaylist.tracks.length} tracks</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity onPress={toggleSelectAllSpotify} style={styles.selectAllRow}>
+              <Text style={styles.selectAllText}>{spotifyAllSelected ? "Deselect All" : "Select All"}</Text>
+            </TouchableOpacity>
+
+            {spotifyPlaylist.tracks.map((t) => (
+              <View key={t._key} style={styles.spotifyTrackRow}>
+                <TouchableOpacity
+                  onPress={() => !t.downloaded && toggleSpotifyTrack(t._key)}
+                  disabled={t.downloaded}
+                  style={[styles.checkbox, t.selected && styles.checkboxChecked, t.downloaded && styles.checkboxDone]}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  {t.downloaded ? (
+                    <Text style={styles.checkboxMark}>✓</Text>
+                  ) : t.selected ? (
+                    <Text style={styles.checkboxMark}>✓</Text>
+                  ) : null}
+                </TouchableOpacity>
+                <Image source={t.album_art ? { uri: t.album_art } : undefined} style={styles.spotifyTrackArt} />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text numberOfLines={1} style={styles.spotifyTrackTitle}>{t.title}</Text>
+                  <Text numberOfLines={1} style={styles.spotifyTrackArtist}>{t.artist}</Text>
+                </View>
+                <Text style={styles.spotifyTrackDuration}>{formatDuration(Math.round((t.duration_ms || 0) / 1000))}</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {result && (
           <View style={styles.resultCard}>
@@ -241,6 +457,47 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
           </View>
         )}
       </ScrollView>
+
+      {spotifyPlaylist && (selectedSpotifyTracks.length > 0 || spotifyBatchRunning) && (
+        <View style={styles.spotifyBatchBar}>
+          {spotifyBatchRunning ? (
+            <>
+              <ActivityIndicator color="#fff" size="small" />
+              <Text style={styles.spotifyBatchBarText}>
+                Downloading {spotifyBatchProgress.current}/{spotifyBatchProgress.total}...
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={styles.spotifyBatchBarText}>{selectedSpotifyTracks.length} selected</Text>
+              <TouchableOpacity onPress={onSpotifyDownloadPress} style={styles.spotifyBatchButton}>
+                <Text style={styles.spotifyBatchButtonText}>Download Selected</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      )}
+
+      <Modal visible={spotifyQualitySheetOpen} transparent animationType="fade" onRequestClose={() => setSpotifyQualitySheetOpen(false)}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setSpotifyQualitySheetOpen(false)}>
+          <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        </Pressable>
+        <View style={styles.sheetCenterWrap} pointerEvents="box-none">
+          <View style={styles.sheetCard}>
+            <Text style={styles.sheetTitle}>{selectedSpotifyTracks.length} songs selected</Text>
+            <Text style={styles.sheetSubtitle}>Choose a quality for all of them</Text>
+            {SPOTIFY_QUALITY_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option.key}
+                style={styles.sheetOptionRow}
+                onPress={() => runSpotifyBatch(option)}
+              >
+                <Text style={styles.sheetOptionLabel}>{option.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -322,4 +579,78 @@ const styles = StyleSheet.create({
   progressText: { color: "#fff", fontSize: 11, marginTop: 6, textAlign: "center" },
 
   doneText: { color: "#6BCB77", fontWeight: "700", marginTop: 16 },
+
+  spotifyCard: {
+    marginTop: 24,
+    backgroundColor: GLASS_BG,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    borderRadius: 18,
+    padding: 16,
+  },
+  spotifyHeaderRow: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
+  spotifyArt: { width: 72, height: 72, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.1)" },
+  spotifyTitle: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  spotifySubtitle: { color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 4 },
+
+  selectAllRow: { alignSelf: "flex-start", marginBottom: 10 },
+  selectAllText: { color: ACCENT, fontSize: 13, fontWeight: "700" },
+
+  spotifyTrackRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: GLASS_BORDER,
+    marginRight: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  checkboxChecked: { backgroundColor: ACCENT, borderColor: ACCENT },
+  checkboxDone: { backgroundColor: "#6BCB77", borderColor: "#6BCB77" },
+  checkboxMark: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  spotifyTrackArt: { width: 40, height: 40, borderRadius: 6, backgroundColor: "rgba(255,255,255,0.1)" },
+  spotifyTrackTitle: { color: "#fff", fontWeight: "600", fontSize: 13 },
+  spotifyTrackArtist: { color: "rgba(255,255,255,0.65)", fontSize: 11, marginTop: 2 },
+  spotifyTrackDuration: { color: "rgba(255,255,255,0.5)", fontSize: 11, marginLeft: 8 },
+
+  spotifyBatchBar: {
+    position: "absolute",
+    left: 20,
+    right: 20,
+    bottom: 100,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(20,20,25,0.95)",
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  spotifyBatchBarText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  spotifyBatchButton: { backgroundColor: ACCENT, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8 },
+  spotifyBatchButtonText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+
+  sheetCenterWrap: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 24 },
+  sheetCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    borderRadius: 22,
+    padding: 20,
+  },
+  sheetTitle: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  sheetSubtitle: { color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 4, marginBottom: 16 },
+  sheetOptionRow: {
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.12)",
+  },
+  sheetOptionLabel: { color: "#fff", fontSize: 14, fontWeight: "600" },
 });

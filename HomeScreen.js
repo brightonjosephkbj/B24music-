@@ -19,7 +19,9 @@ import { LinearGradient } from "expo-linear-gradient";
 // ---------------------------------------------------------------------------
 // Points at your deployed b24music backend. Swap this for an env/config
 // value later if you need different URLs for dev vs. production builds.
-const API_BASE = "https://nrighton233j-b24music.hf.space";
+import { gatewayHeaders } from "./apiClient";
+
+const API_BASE = "https://gateway-cah4.onrender.com";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
@@ -140,7 +142,7 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
   const fetchTrending = async () => {
     try {
       setError(null);
-      const res = await fetch(`${API_BASE}/api/music/trending?limit=15&offset=0`);
+      const res = await fetch(`${API_BASE}/api/apicache/api/music/search_trending?limit=15&offset=0`, { headers: gatewayHeaders() });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
       const newTracks = data.tracks || [];
@@ -174,7 +176,7 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const res = await fetch(`${API_BASE}/api/music/trending?limit=15&offset=${offset}`);
+      const res = await fetch(`${API_BASE}/api/apicache/api/music/search_trending?limit=15&offset=${offset}`, { headers: gatewayHeaders() });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
       const incoming = data.tracks || [];

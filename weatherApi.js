@@ -1,4 +1,6 @@
-const API_BASE = "https://nrighton233j-b24music.hf.space";
+import { gatewayHeaders } from "./apiClient";
+
+const API_BASE = "https://gateway-cah4.onrender.com";
 
 // A curated set of well-known cities with lat/lon baked in, so the
 // "random weather in different places" cards don't need a geocode
@@ -27,14 +29,14 @@ export function pickRandomCities(count = 6) {
 }
 
 export async function geocodeSearch(query) {
-  const res = await fetch(`${API_BASE}/api/weather/geocode?q=${encodeURIComponent(query)}`);
+  const res = await fetch(`${API_BASE}/api/apicache/api/weather/geocode?q=${encodeURIComponent(query)}`, { headers: gatewayHeaders() });
   if (!res.ok) throw new Error(`Geocoding failed: ${res.status}`);
   const data = await res.json();
   return data.results || [];
 }
 
 export async function fetchCurrentWeather(lat, lon) {
-  const res = await fetch(`${API_BASE}/api/weather/current?lat=${lat}&lon=${lon}`);
+  const res = await fetch(`${API_BASE}/api/apicache/api/weather/current?lat=${lat}&lon=${lon}`, { headers: gatewayHeaders() });
   if (!res.ok) throw new Error(`Weather request failed: ${res.status}`);
   return res.json();
 }

@@ -1,4 +1,6 @@
-const API_BASE = "https://nrighton233j-b24music.hf.space";
+import { gatewayHeaders } from "./apiClient";
+
+const API_BASE = "https://gateway-cah4.onrender.com";
 
 // Open Food Facts has no "random product" endpoint, so the default grid
 // is built the same way Weather's random cities are: a curated list of
@@ -15,7 +17,7 @@ export function pickRandomQueries(count = 6) {
 }
 
 export async function searchFood(query, limit = 10) {
-  const res = await fetch(`${API_BASE}/api/food/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+  const res = await fetch(`${API_BASE}/api/apicache/api/food/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: gatewayHeaders() });
   if (!res.ok) throw new Error(`Food search failed: ${res.status}`);
   const data = await res.json();
   return data.products || [];
@@ -35,7 +37,7 @@ export async function fetchRandomFoodCards(count = 6) {
 }
 
 export async function getByBarcode(barcode) {
-  const res = await fetch(`${API_BASE}/api/food/barcode/${encodeURIComponent(barcode)}`);
+  const res = await fetch(`${API_BASE}/api/apicache/api/food/barcode/${encodeURIComponent(barcode)}`, { headers: gatewayHeaders() });
   const data = await res.json();
   if (!data.found) return null;
   return data.product;

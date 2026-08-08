@@ -92,11 +92,17 @@ export async function addItemToFolder(folderId, itemId) {
 export const getPlaylists = () => getJSON(KEYS.PLAYLISTS, []);
 export const savePlaylists = (list) => setJSON(KEYS.PLAYLISTS, list);
 
-export async function createPlaylist(name) {
+export async function createPlaylist(name, artwork = null) {
   const list = await getPlaylists();
-  const playlist = { id: `playlist_${Date.now()}`, name, trackIds: [] };
+  const playlist = { id: `playlist_${Date.now()}`, name, art: artwork, trackIds: [] };
   await savePlaylists([...list, playlist]);
   return playlist;
+}
+
+export async function updatePlaylist(id, patch) {
+  const list = await getPlaylists();
+  const next = list.map((p) => (p.id === id ? { ...p, ...patch } : p));
+  return savePlaylists(next);
 }
 
 export async function deletePlaylist(id) {

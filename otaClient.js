@@ -2,32 +2,49 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 import appJson from "./app.json";
 
-const API_BASE = "https://nrighton233j-b24music.hf.space";
+const API_BASE = "https://gateway-cah4.onrender.com";
 
 // Uses the version actually baked into this build (app.json's "version"
 // at build time), not some hardcoded string - so this stays correct
 // automatically as you bump versions for future releases.
 export function getCurrentVersion() {
-  // Constants.expoConfig can be empty once an expo-updates OTA is active
-  // (our self-hosted manifest does not embed the full app config), and
-  // Constants.nativeAppVersion is not reliable in every build - so read
-  // straight from the static app.json bundled at build time instead,
-  // same approach already confirmed working in SettingsScreen.js.
   return appJson.expo.version || Constants.expoConfig?.version || Constants.nativeAppVersion || "0.0.0";
 }
 
-// Talks to your own custom OTA backend (ota.py) - NOT expo-updates. This
-// backend does whole-APK replacement (a real download_url + changelog +
-// mandatory flag), which is a different mechanism from Expo's JS-bundle-only
-// OTA system, so the two should never be mixed.
+// Talks to the shared OTA server's /app/version route, which handles both
+// native (APK) update checks and expo-updates runtime-version OTA checks
+// in one call. app_id identifies which app is asking (this one: b24music).
+//
+// Real response shape from /app/version: { version, apk_url, notes,
+// update_available, update_type } where update_type is "native", "ota",
+// or "none" - NOT { latest_version, mandatory, download_url, changelog }.
+// This function normalizes to the shape UpdatePrompt.js expects, since
+// the backend has no concept of "mandatory" updates or changelogs yet.
 export async function checkForUpdate() {
-  const platform = Platform.OS === "ios" ? "ios" : "android";
   const currentVersion = getCurrentVersion();
+  const currentRuntimeVersion = Constants.expoConfig?.runtimeVersion
+    ?? Constants.manifest2?.runtimeVersion
+    ?? currentVersion;
 
-  const params = new URLSearchParams({ platform, current_version: currentVersion });
-  const res = await fetch(`${API_BASE}/api/ota/check?${params.toString()}`);
+  const params = new URLSearchParams({
+    app_id: "b24music",
+    current_version: currentVersion,
+    current_runtime_version: String(currentRuntimeVersion),
+  });
+
+  const res = await fetch(`${API_BASE}/api/ota/app/version?${params.toString()}`);
   if (!res.ok) throw new Error(`OTA check failed: ${res.status}`);
-  return res.json();
-  // Shape: { update_available, latest_version, current_version, mandatory,
-  // download_url, changelog, published_at }
+  const data = await res.json();
+
+  // Only surface this as a native-update prompt if the backend actually
+  // found a newer native version - "ota" or "none" update_type means
+  // there's nothing for UpdatePrompt (the whole-APK-replace UI) to show.
+  return {
+    update_available: data.update_available && data.update_type === "native",
+    latest_version: data.version,
+    current_version: currentVersion,
+    mandatory: false, // backend has no mandatory-update concept yet
+    download_url: data.apk_url,
+    changelog: data.notes || null,
+  };
 }

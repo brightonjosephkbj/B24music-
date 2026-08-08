@@ -2,8 +2,8 @@ import "react-native-gesture-handler"; // must be the very first import, before 
 
 import React, { useState, useEffect, useRef } from "react";
 import { StatusBar } from "expo-status-bar";
+import { View, ActivityIndicator } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-
 import AppShell from "./AppShell";
 import HomeScreen from "./HomeScreen";
 import LibraryScreen from "./LibraryScreen";
@@ -26,6 +26,7 @@ import { DownloadsProvider } from "./DownloadsContext";
 import MusicInfo from "expo-music-info-2";
 import { getCachedArtwork, setCachedArtwork } from "./deviceArtworkCache";
 import { registerForPushNotificationsAsync } from "./notifications";
+import LoginScreen, { getStoredAuth, clearStoredAuth, updateStoredAuth } from "./LoginScreen";
 
 // Device-scanned tracks skip ID3 reading in bulk (see localMediaScanner.js -
 // hundreds of native-bridge calls at once was the actual lag source). So
@@ -63,6 +64,27 @@ async function resolveDeviceArtwork(track, setNowPlaying) {
 }
 
 export default function App() {
+  // Every backend call now needs a real JWT (api-cache and messenger both
+  // reject anonymous requests outright) - so this is a hard gate, not an
+  // optional login screen. "Continue as Guest" inside LoginScreen still
+  // ends up here with a real token, the user just never sees a form.
+  const [authUser, setAuthUser] = useState(null);
+  const [authResolved, setAuthResolved] = useState(false);
+
+  useEffect(() => {
+    getStoredAuth().then((user) => {
+      setAuthUser(user);
+      setAuthResolved(true);
+    });
+  }, []);
+
+  const handleSignOut = async () => {
+    await clearStoredAuth();
+    setAuthUser(null);
+    // authResolved stays true - authUser being null re-renders straight
+    // into the login gate below, no extra "resolving" flash needed.
+  };
+
   const [activeNav, setActiveNav] = useState("home");
   const [activeDrawerScreen, setActiveDrawerScreen] = useState(null); // e.g. "news"
   const [nowPlaying, setNowPlaying] = useState(null); // track object
@@ -215,10 +237,35 @@ export default function App() {
   } else if (activeNav === "search") {
     content = <SearchScreen onTrackPress={playTrack} />;
   } else if (activeNav === "settings") {
-    content = <SettingsScreen />;
+    content = (
+      <SettingsScreen
+        authUser={authUser}
+        onSignOutPress={handleSignOut}
+        onProfileUpdate={async (patch) => {
+          const updated = await updateStoredAuth(patch);
+          if (updated) setAuthUser(updated);
+        }}
+      />
+    );
   }
 
   const isVideo = nowPlaying?.type === "video";
+
+  if (!authResolved) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#0b3d4c" }}>
+        <ActivityIndicator color="#fff" />
+      </View>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <LoginScreen onAuthenticated={(user) => setAuthUser(user)} />
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

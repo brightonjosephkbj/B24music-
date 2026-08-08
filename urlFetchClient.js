@@ -6,7 +6,9 @@
 // sites that hide the real stream URL behind obfuscated JS (YouTube, etc.).
 // ---------------------------------------------------------------------------
 
-const API_BASE = "https://nrighton233j-b24music.hf.space";
+import { gatewayHeaders } from "./apiClient";
+
+const API_BASE = "https://gateway-cah4.onrender.com";
 
 // Plain fetch() has no built-in timeout, and we've already seen (the hung
 // yt-dlp curl test) how badly a stuck request can stall a UI. The scrape
@@ -103,23 +105,25 @@ export async function tryClientSideFetch(pageUrl) {
 }
 
 // Attempt 2: ask the backend's yt-dlp endpoint for metadata only. The
-// actual file only gets produced later, by hitting /api/fetch/download -
-// see backendDownloadUrl() below.
+// actual file only gets produced later, by calling remoteFetch() below,
+// which POSTs to Downloads' /remote/fetch and returns a stored file_id -
+// there's no single streaming download URL anymore like the old /api/fetch
+// service used to provide.
 export async function fetchInfoFromBackend(pageUrl) {
   const params = new URLSearchParams({ url: pageUrl });
-  const res = await fetch(`${API_BASE}/api/fetch/info?${params.toString()}`);
-  if (!res.ok) throw new Error(`Server responded ${res.status}`);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error);
+  const res = await fetch(`${API_BASE}/api/downloads/remote/info?${params.toString()}`, { headers: gatewayHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Server responded ${res.status}`);
 
+  const info = data.data;
   return {
     id: `ytdlp_${Date.now()}`,
     provider: "ytdlp",
     type: "video", // caller can still choose an audio-only download separately
-    title: data.title || "Untitled",
-    artist: data.uploader || hostnameOf(pageUrl),
-    artwork: data.thumbnail || null,
-    duration: data.duration || 0,
+    title: info.title || "Untitled",
+    artist: info.uploader || hostnameOf(pageUrl),
+    artwork: info.thumbnail || null,
+    duration: info.duration || 0,
     sourceUrl: pageUrl,
   };
 }
@@ -138,26 +142,73 @@ export async function resolveUrl(pageUrl) {
   return { ...viaBackend, method: "ytdlp" };
 }
 
-// Builds the download URL for the yt-dlp fallback path.
-export function backendDownloadUrl(pageUrl, mode) {
-  const params = new URLSearchParams({ url: pageUrl, mode });
-  return `${API_BASE}/api/fetch/download?${params.toString()}`;
+// ---------------------------------------------------------------------------
+// DOWNLOAD FLOW - CHANGED SHAPE. The old backend had a single streaming
+// GET endpoint (`/api/fetch/download?url=...`) that the browser could point
+// straight at. The new Downloads service doesn't work that way: you POST to
+// kick off search+extract+store (which can take a while for video), then
+// separately GET the finished file by its stored id once it's done.
+//
+// This stub is NOT wired into any screen yet - need to see how
+// backendDownloadUrl() is actually called in the UI (SearchScreen.js /
+// PlayerCard.js) before finishing this properly. Left here so nothing
+// silently breaks on import.
+// ---------------------------------------------------------------------------
+export async function remoteFetch(pageUrl, { appId = "b24music", category = "download", mode = "audio" } = {}) {
+  const res = await fetch(`${API_BASE}/api/downloads/remote/fetch`, {
+    method: "POST",
+    headers: gatewayHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ url: pageUrl, app_id: appId, category, mode }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Server responded ${res.status}`);
+  return data.data; // { id, checksum, size_bytes, title }
+}
+
+export function fileDownloadUrl(fileId) {
+  return `${API_BASE}/api/downloads/files/${fileId}`;
+}
+
+// Detects a Spotify playlist link, distinct from the generic paste-a-link
+// flow above - Spotify playlists need their own metadata (track list,
+// playlist art/name) rather than a single video/audio resolve.
+export function isSpotifyPlaylistUrl(url) {
+  return /open\.spotify\.com\/playlist\//i.test(url);
+}
+
+// Fetches a public Spotify playlist's metadata + full track list via
+// Api-cache's scrape-based endpoint. Returns { playlist_title, playlist_art,
+// tracks: [{title, artist, duration_ms, album_art, spotify_id}] }.
+export async function fetchSpotifyPlaylist(pageUrl) {
+  const params = new URLSearchParams({ url: pageUrl });
+  const res = await fetch(`${API_BASE}/api/apicache/api/music/spotify_playlist?${params.toString()}`, { headers: gatewayHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.error) throw new Error(data.error || `Server responded ${res.status}`);
+  return data;
+}
+
+// Finds the best-guess YouTube match for a given song, used to resolve each
+// Spotify track (which has no audio of its own here) to something actually
+// downloadable via the existing yt-dlp/Lightning pipeline.
+export async function searchYoutubeMatch(query) {
+  const params = new URLSearchParams({ q: query, limit: "1" });
+  const res = await fetch(`${API_BASE}/api/downloads/remote/search?${params.toString()}`, { headers: gatewayHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) return null;
+  const results = data.data || [];
+  return results[0] || null;
 }
 
 // Resolves a URL to a real, directly-downloadable stream_url via Lightning.ai's
 // yt-dlp setup (fast, PO-token capable, avoids HF's datacenter-IP blocking).
-// Returns { stream_url, title, mimetype, ext } - caller downloads straight
-// from stream_url, which points at Lightning's own /media/<job_id> route.
+// Returns { job_id, stream_url, title, mimetype, ext, estimated_seconds } -
+// caller downloads straight from stream_url, which points at Lightning's own
+// /media/<job_id> route. Note: this is a *preview* - it doesn't persist
+// anything server-side. Use remoteFetch() above to actually store a copy.
 export async function lightningExtract(pageUrl, mode = "audio", quality = "medium") {
   const params = new URLSearchParams({ url: pageUrl, mode, quality });
-  const res = await fetch(`${API_BASE}/api/fetch/lightning_stream?${params.toString()}`);
-  let data;
-  try {
-    data = await res.json();
-  } catch {
-    throw new Error(`Server responded ${res.status}`);
-  }
-  if (data.error) throw new Error(data.error);
-  if (!res.ok) throw new Error(`Server responded ${res.status}`);
-  return data;
+  const res = await fetch(`${API_BASE}/api/downloads/remote/stream-info?${params.toString()}`, { headers: gatewayHeaders() });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) throw new Error(data.error || `Server responded ${res.status}`);
+  return data.data;
 }

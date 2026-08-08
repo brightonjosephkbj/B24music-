@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Modal,
   Share,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -23,15 +24,17 @@ import {
   getPlaylists,
   createPlaylist,
   addTrackToPlaylist,
+  updatePlaylist,
+  deletePlaylist,
 } from "./libraryStorage";
 import ContextMenuCard from "./ContextMenuCard";
 import ImageViewer from "./ImageViewer";
 import { scanDeviceMedia } from "./localMediaScanner";
 import { useDownloads } from "./DownloadsContext";
 
-const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
-const GLASS_BG = "rgba(255,255,255,0.14)";
-const GLASS_BORDER = "rgba(255,255,255,0.25)";
+const GRADIENT_COLORS = ["#121212", "#181818", "#121212"];
+const GLASS_BG = "rgba(255,255,255,0.08)";
+const GLASS_BORDER = "rgba(255,255,255,0.15)";
 
 const TABS = ["Videos", "All Songs", "Folders", "Playlists", "Artists", "Downloads"];
 
@@ -42,11 +45,11 @@ function formatDuration(sec) {
   return `${m}:${s}`;
 }
 
-let deviceMediaCache = null; // { audio: [...], video: [...] } | null
+let deviceMediaCache = null;
 
 export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const { activeDownloads, pauseDownload, resumeDownload, cancelDownload } = useDownloads();
-  const [activeTab, setActiveTab] = useState("Downloads");
+  const [activeTab, setActiveTab] = useState("Playlists");
   const [downloads, setDownloads] = useState([]);
   const [deviceAudio, setDeviceAudio] = useState(deviceMediaCache?.audio || []);
   const [deviceVideo, setDeviceVideo] = useState(deviceMediaCache?.video || []);
@@ -57,6 +60,13 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [folders, setFolders] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Playlist tab extras
+  const [playlistSearch, setPlaylistSearch] = useState("");
+  const [editPlaylistVisible, setEditPlaylistVisible] = useState(false);
+  const [editPlaylistTarget, setEditPlaylistTarget] = useState(null);
+  const [editPlaylistName, setEditPlaylistName] = useState("");
+  const [editPlaylistArt, setEditPlaylistArt] = useState("");
 
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
@@ -69,8 +79,12 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [promptVisible, setPromptVisible] = useState(false);
   const [promptMode, setPromptMode] = useState(null);
   const [promptValue, setPromptValue] = useState("");
+
+  // Playlist & Folder Picker states
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerTarget, setPickerTarget] = useState(null);
+  const [folderPickerVisible, setFolderPickerVisible] = useState(false);
+  const [folderPickerTarget, setFolderPickerTarget] = useState(null);
 
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [imageViewerItems, setImageViewerItems] = useState([]);
@@ -114,8 +128,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   useEffect(() => {
     if (deviceMediaCache) return;
     runScan();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [runScan]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -123,53 +136,75 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     setRefreshing(false);
   };
 
-  const openMenu = (evt, item) => {
+  const openMenu = useCallback((evt, item) => {
     const { pageX, pageY } = evt.nativeEvent;
     setMenuAnchor({ x: pageX - 110, y: pageY + 8 });
     setMenuItem(item);
     setMenuVisible(true);
-  };
+  }, []);
 
-  const menuActions = menuItem
-    ? [
-        {
-          key: "share",
-          label: "Share",
-          onPress: () => Share.share({ message: menuItem.title, url: menuItem.localUri || "" }),
+  const menuActions = useMemo(() => {
+    if (!menuItem) return [];
+    return [
+      {
+        key: "share",
+        label: "Share",
+        onPress: () => Share.share({ message: menuItem.title, url: menuItem.localUri || "" }),
+      },
+      {
+        key: "playNext",
+        label: "Play Next",
+        onPress: () => onTrackPress && onTrackPress(menuItem, { playNext: true }),
+      },
+      {
+        key: "addToPlaylist",
+        label: "Add to Playlist",
+        onPress: () => {
+          setPickerTarget(menuItem);
+          setPickerVisible(true);
         },
-        {
-          key: "playNext",
-          label: "Play Next",
-          onPress: () => onTrackPress && onTrackPress(menuItem, { playNext: true }),
+      },
+      {
+        key: "addToFolder",
+        label: "Add to Folder",
+        onPress: () => {
+          setFolderPickerTarget(menuItem);
+          setFolderPickerVisible(true);
         },
-        {
-          key: "addToPlaylist",
-          label: "Add to Playlist",
-          onPress: () => {
-            setPickerTarget(menuItem);
-            setPickerVisible(true);
-          },
+      },
+      {
+        key: "editInfo",
+        label: "Edit Info",
+        onPress: () => {
+          setPromptMode("editInfo");
+          setPromptValue(menuItem.title);
+          setPromptVisible(true);
         },
-        {
-          key: "editInfo",
-          label: "Edit Info",
-          onPress: () => {
-            setPromptMode("editInfo");
-            setPromptValue(menuItem.title);
-            setPromptVisible(true);
-          },
-        },
-        {
-          key: "delete",
-          label: "Delete",
-          destructive: true,
-          onPress: async () => {
+      },
+      {
+        key: "delete",
+        label: "Delete",
+        destructive: true,
+        onPress: async () => {
+          const isDownload = downloads.some((d) => d.id === menuItem.id);
+          if (isDownload) {
             await removeDownload(menuItem.id);
             loadAll();
-          },
+          } else {
+            const filterOut = (prev) => prev.filter((d) => d.id !== menuItem.id);
+            setDeviceAudio(filterOut);
+            setDeviceVideo(filterOut);
+            if (deviceMediaCache) {
+              deviceMediaCache = {
+                audio: deviceMediaCache.audio.filter((d) => d.id !== menuItem.id),
+                video: deviceMediaCache.video.filter((d) => d.id !== menuItem.id),
+              };
+            }
+          }
         },
-      ]
-    : [];
+      },
+    ];
+  }, [menuItem, downloads, loadAll, onTrackPress]);
 
   const submitPrompt = async () => {
     const value = promptValue.trim();
@@ -180,7 +215,21 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     } else if (promptMode === "playlist") {
       await createPlaylist(value);
     } else if (promptMode === "editInfo" && menuItem) {
-      await updateDownloadInfo(menuItem.id, { title: value });
+      const isDownload = downloads.some((d) => d.id === menuItem.id);
+      if (isDownload) {
+        await updateDownloadInfo(menuItem.id, { title: value });
+      } else {
+        const updateTitle = (list) =>
+          list.map((item) => (item.id === menuItem.id ? { ...item, title: value } : item));
+        setDeviceAudio(updateTitle);
+        setDeviceVideo(updateTitle);
+        if (deviceMediaCache) {
+          deviceMediaCache = {
+            audio: updateTitle(deviceMediaCache.audio),
+            video: updateTitle(deviceMediaCache.video),
+          };
+        }
+      }
     }
     setPromptVisible(false);
     setPromptValue("");
@@ -191,6 +240,15 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const appAudio = useMemo(() => downloads.filter((d) => d.type === "audio"), [downloads]);
   const videos = useMemo(() => [...appVideos, ...deviceVideo], [appVideos, deviceVideo]);
   const allSongs = useMemo(() => [...appAudio, ...deviceAudio], [appAudio, deviceAudio]);
+
+  const allMedia = useMemo(() => {
+    const map = new Map();
+    [...downloads, ...deviceAudio, ...deviceVideo].forEach((item) => {
+      if (item && item.id) map.set(item.id, item);
+    });
+    return Array.from(map.values());
+  }, [downloads, deviceAudio, deviceVideo]);
+
   const artistGroups = useMemo(() => {
     return [...allSongs, ...videos].reduce((acc, d) => {
       const key = d.artist || "Unknown Artist";
@@ -201,17 +259,45 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   }, [allSongs, videos]);
   const artistEntries = useMemo(() => Object.entries(artistGroups), [artistGroups]);
 
+  const getPlaylistArt = useCallback((playlist) => {
+    if (playlist.art) return { uri: playlist.art };
+    const idSet = new Set(playlist.trackIds || []);
+    const firstTrack = allMedia.find((d) => idSet.has(d.id) && d.artwork);
+    return firstTrack ? { uri: firstTrack.artwork } : null;
+  }, [allMedia]);
+
+  const filteredPlaylists = useMemo(() => {
+    if (!playlistSearch.trim()) return playlists;
+    const q = playlistSearch.toLowerCase();
+    return playlists.filter((p) => p.name.toLowerCase().includes(q));
+  }, [playlists, playlistSearch]);
+
+  const playAllPlaylist = useCallback((playlist) => {
+    const idSet = new Set(playlist.trackIds || []);
+    const tracks = allMedia.filter((d) => idSet.has(d.id));
+    if (tracks.length > 0 && onTrackPress) onTrackPress(tracks[0], tracks);
+  }, [allMedia, onTrackPress]);
+
+  const shufflePlaylist = useCallback((playlist) => {
+    const idSet = new Set(playlist.trackIds || []);
+    const tracks = allMedia.filter((d) => idSet.has(d.id));
+    if (tracks.length > 0 && onTrackPress) {
+      const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+      onTrackPress(shuffled[0], shuffled);
+    }
+  }, [allMedia, onTrackPress]);
+
   const folderItems = useMemo(() => {
     if (!selectedFolder) return [];
     const idSet = new Set(selectedFolder.itemIds || []);
-    return downloads.filter((d) => idSet.has(d.id));
-  }, [selectedFolder, downloads]);
+    return allMedia.filter((d) => idSet.has(d.id));
+  }, [selectedFolder, allMedia]);
 
   const playlistItems = useMemo(() => {
     if (!selectedPlaylist) return [];
     const idSet = new Set(selectedPlaylist.trackIds || []);
-    return downloads.filter((d) => idSet.has(d.id));
-  }, [selectedPlaylist, downloads]);
+    return allMedia.filter((d) => idSet.has(d.id));
+  }, [selectedPlaylist, allMedia]);
 
   const artistTracks = useMemo(() => {
     if (!selectedArtist) return [];
@@ -224,8 +310,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
       if (fresh && fresh !== selectedFolder) setSelectedFolder(fresh);
       if (!fresh) setSelectedFolder(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folders]);
+  }, [folders, selectedFolder]);
 
   useEffect(() => {
     if (selectedPlaylist) {
@@ -233,8 +318,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
       if (fresh && fresh !== selectedPlaylist) setSelectedPlaylist(fresh);
       if (!fresh) setSelectedPlaylist(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playlists]);
+  }, [playlists, selectedPlaylist]);
 
   const closeDetail = () => {
     setSelectedFolder(null);
@@ -242,23 +326,26 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     setSelectedArtist(null);
   };
 
-  const openImage = (item) => {
-    const savedImages = downloads.filter((d) => d.type === "image");
+  const openImage = useCallback((item) => {
+    const savedImages = allMedia.filter((d) => d.type === "image");
     const idx = savedImages.findIndex((d) => d.id === item.id);
+    const targetImages = savedImages.length > 0 ? savedImages : [item];
+    const targetIndex = idx >= 0 ? idx : 0;
+
     setImageViewerItems(
-      savedImages.map((d) => ({
+      targetImages.map((d) => ({
         id: d.id,
-        title: d.title,
-        artist: d.artist,
-        image: d.localUri,
-        thumbnail: d.artwork || d.localUri,
-        download_url: d.localUri,
+        title: d.title || "Image",
+        artist: d.artist || "",
+        image: d.localUri || d.uri,
+        thumbnail: d.artwork || d.localUri || d.uri,
+        download_url: d.localUri || d.uri,
         source: d.source,
       }))
     );
-    setImageViewerIndex(idx === -1 ? 0 : idx);
+    setImageViewerIndex(targetIndex);
     setImageViewerVisible(true);
-  };
+  }, [allMedia]);
 
   const renderTrackRow = useCallback(
     ({ item }) => (
@@ -291,10 +378,115 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         )}
       </TouchableOpacity>
     ),
-    [downloads, onTrackPress, activeTab, videos, allSongs, selectedFolder, selectedPlaylist, selectedArtist, folderItems, playlistItems, artistTracks]
+    [downloads, onTrackPress, activeTab, videos, allSongs, selectedFolder, selectedPlaylist, selectedArtist, folderItems, playlistItems, artistTracks, openImage, openMenu]
   );
 
   const keyExtractor = useCallback((item) => item.id, []);
+
+  const renderPlaylistDetailHeader = () => {
+    if (!selectedPlaylist) return null;
+    const art = getPlaylistArt(selectedPlaylist);
+
+    return (
+      <View style={styles.spotifyHeaderContainer}>
+        {/* Cover Art */}
+        <View style={styles.spotifyCoverArtWrap}>
+          {art ? (
+            <Image source={art} style={styles.spotifyCoverArt} />
+          ) : (
+            <View style={[styles.spotifyCoverArt, styles.spotifyArtPlaceholder]}>
+              <Text style={{ fontSize: 60 }}>🎵</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Playlist Title & Meta */}
+        <Text style={styles.spotifyTitle}>{selectedPlaylist.name}</Text>
+        <View style={styles.spotifySourceRow}>
+          <View style={styles.spotifyDot} />
+          <Text style={styles.spotifySourceText}>Made for you</Text>
+        </View>
+        <Text style={styles.spotifyMeta}>{playlistItems.length} tracks</Text>
+
+        {/* Actions Row */}
+        <View style={styles.spotifyActionBar}>
+          {/* Left Controls: Edit, Share, Options */}
+          <View style={styles.spotifyLeftActions}>
+            <TouchableOpacity
+              style={styles.spotifyIconBtn}
+              onPress={() => {
+                setEditPlaylistTarget(selectedPlaylist);
+                setEditPlaylistName(selectedPlaylist.name);
+                setEditPlaylistArt(selectedPlaylist.art || "");
+                setEditPlaylistVisible(true);
+              }}
+            >
+              <Text style={styles.spotifyIconTxt}>✏️</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.spotifyIconBtn}
+              onPress={() => {
+                Share.share({
+                  message: `Check out my playlist: ${selectedPlaylist.name}`,
+                });
+              }}
+            >
+              <Text style={styles.spotifyIconTxt}>📤</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.spotifyIconBtn}
+              onPress={() => {
+                Alert.alert(selectedPlaylist.name, "Choose an option", [
+                  {
+                    text: "Edit Playlist",
+                    onPress: () => {
+                      setEditPlaylistTarget(selectedPlaylist);
+                      setEditPlaylistName(selectedPlaylist.name);
+                      setEditPlaylistArt(selectedPlaylist.art || "");
+                      setEditPlaylistVisible(true);
+                    },
+                  },
+                  {
+                    text: "Delete Playlist",
+                    style: "destructive",
+                    onPress: async () => {
+                      await deletePlaylist(selectedPlaylist.id);
+                      closeDetail();
+                      loadAll();
+                    },
+                  },
+                  { text: "Cancel", style: "cancel" },
+                ]);
+              }}
+            >
+              <Text style={styles.spotifyIconTxt}>⋮</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Right Controls: Shuffle & Primary Play CTA */}
+          <View style={styles.spotifyRightActions}>
+            <TouchableOpacity
+              style={styles.spotifyIconBtn}
+              onPress={() => shufflePlaylist(selectedPlaylist)}
+            >
+              <Text style={[styles.spotifyIconTxt, { color: "#1ED760" }]}>🔀</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.spotifyPlayBtn}
+              onPress={() => playAllPlaylist(selectedPlaylist)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.spotifyPlayIcon}>▶</Text>
+              <Text style={styles.spotifyPlayText}>PLAY</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  };
 
   const scanHeader = (deniedMsg) => (
     <>
@@ -395,9 +587,13 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         ) : (
           <Text style={styles.title}>Your library</Text>
         )}
-        <TouchableOpacity style={styles.iconButton} onPress={onSearchPress}>
-          <Text style={styles.iconGlyph}>Search</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          {!selectedPlaylist && (
+            <TouchableOpacity style={styles.iconButton} onPress={onSearchPress}>
+              <Text style={styles.iconGlyph}>Search</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {!detailMode && (
@@ -426,8 +622,10 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
           data={detailData}
           keyExtractor={keyExtractor}
           renderItem={renderTrackRow}
+          ListHeaderComponent={selectedPlaylist ? renderPlaylistDetailHeader : null}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={<Text style={styles.emptyText}>{detailEmptyText}</Text>}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
           initialNumToRender={12}
           maxToRenderPerBatch={12}
           windowSize={7}
@@ -486,29 +684,59 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
 
           {activeTab === "Playlists" && (
             <FlatList
-              data={playlists}
+              key="playlist-grid-2col"
+              data={filteredPlaylists}
               keyExtractor={(p) => p.id}
+              numColumns={2}
+              columnWrapperStyle={styles.tileColumnWrapper}
               contentContainerStyle={styles.listContent}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
               ListHeaderComponent={
-                <TouchableOpacity
-                  style={styles.createTile}
-                  onPress={() => {
-                    setPromptMode("playlist");
-                    setPromptValue("");
-                    setPromptVisible(true);
-                  }}
-                >
-                  <Text style={styles.createTileText}>+ New Playlist</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={styles.createTile}
+                    onPress={() => {
+                      setPromptMode("playlist");
+                      setPromptValue("");
+                      setPromptVisible(true);
+                    }}
+                  >
+                    <Text style={styles.createTileText}>+ New Playlist</Text>
+                  </TouchableOpacity>
+
+                  <View style={styles.playlistSearchBar}>
+                    <Text style={styles.playlistSearchIcon}>🔍</Text>
+                    <TextInput
+                      style={styles.playlistSearchInput}
+                      placeholder="Search playlists..."
+                      placeholderTextColor="rgba(255,255,255,0.4)"
+                      value={playlistSearch}
+                      onChangeText={setPlaylistSearch}
+                    />
+                  </View>
+                </>
               }
-              ListEmptyComponent={<Text style={styles.emptyText}>No playlists yet.</Text>}
-              renderItem={({ item: p }) => (
-                <TouchableOpacity style={styles.folderRow} onPress={() => setSelectedPlaylist(p)}>
-                  <Text style={styles.folderName}>{p.name}</Text>
-                  <Text style={styles.folderCount}>{p.trackIds.length} tracks</Text>
-                </TouchableOpacity>
-              )}
+              ListEmptyComponent={<Text style={styles.emptyText}>No playlists found.</Text>}
+              renderItem={({ item: p }) => {
+                const art = getPlaylistArt(p);
+                return (
+                  <TouchableOpacity style={styles.playlistTile} onPress={() => setSelectedPlaylist(p)}>
+                    <View style={styles.playlistTileCoverWrap}>
+                      {art ? (
+                        <Image source={art} style={styles.playlistTileArt} />
+                      ) : (
+                        <View style={[styles.playlistTileArt, styles.spotifyArtPlaceholder]}>
+                          <Text style={{ fontSize: 32 }}>🎵</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text numberOfLines={1} style={styles.playlistTileTitle}>{p.name}</Text>
+                    <Text numberOfLines={1} style={styles.playlistTileSub}>
+                      {p.trackIds ? p.trackIds.length : 0} tracks
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
             />
           )}
 
@@ -541,6 +769,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         onClose={() => setMenuVisible(false)}
       />
 
+      {/* Prompt Modal */}
       <Modal visible={promptVisible} transparent animationType="fade" onRequestClose={() => setPromptVisible(false)}>
         <View style={styles.promptBackdrop}>
           <View style={styles.promptCard}>
@@ -567,6 +796,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         </View>
       </Modal>
 
+      {/* Add to Playlist Picker */}
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <TouchableOpacity style={styles.promptBackdrop} activeOpacity={1} onPress={() => setPickerVisible(false)}>
           <View style={styles.promptCard}>
@@ -592,6 +822,77 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         </TouchableOpacity>
       </Modal>
 
+      {/* Add to Folder Picker */}
+      <Modal visible={folderPickerVisible} transparent animationType="fade" onRequestClose={() => setFolderPickerVisible(false)}>
+        <TouchableOpacity style={styles.promptBackdrop} activeOpacity={1} onPress={() => setFolderPickerVisible(false)}>
+          <View style={styles.promptCard}>
+            <Text style={styles.promptTitle}>Add to Folder</Text>
+            {folders.length === 0 ? (
+              <Text style={styles.emptyText}>No folders yet — create one first.</Text>
+            ) : (
+              folders.map((f) => (
+                <TouchableOpacity
+                  key={f.id}
+                  style={styles.pickerRow}
+                  onPress={async () => {
+                    if (folderPickerTarget) await addItemToFolder(f.id, folderPickerTarget.id);
+                    setFolderPickerVisible(false);
+                    loadAll();
+                  }}
+                >
+                  <Text style={styles.pickerRowText}>{f.name}</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Edit Playlist Modal */}
+      <Modal visible={editPlaylistVisible} transparent animationType="fade" onRequestClose={() => setEditPlaylistVisible(false)}>
+        <View style={styles.promptBackdrop}>
+          <View style={styles.promptCard}>
+            <Text style={styles.promptTitle}>Edit Playlist</Text>
+            <Text style={styles.editPlaylistLabel}>Playlist Name</Text>
+            <TextInput
+              value={editPlaylistName}
+              onChangeText={setEditPlaylistName}
+              placeholder="Name"
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              style={styles.promptInput}
+            />
+            <Text style={styles.editPlaylistLabel}>Cover Image URL (Optional)</Text>
+            <TextInput
+              value={editPlaylistArt}
+              onChangeText={setEditPlaylistArt}
+              placeholder="https://..."
+              placeholderTextColor="rgba(255,255,255,0.4)"
+              style={styles.promptInput}
+            />
+            <View style={styles.promptButtons}>
+              <TouchableOpacity onPress={() => setEditPlaylistVisible(false)} style={styles.promptButton}>
+                <Text style={styles.promptButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  if (editPlaylistTarget) {
+                    await updatePlaylist(editPlaylistTarget.id, {
+                      name: editPlaylistName.trim() || editPlaylistTarget.name,
+                      art: editPlaylistArt.trim() || null,
+                    });
+                    loadAll();
+                  }
+                  setEditPlaylistVisible(false);
+                }}
+                style={[styles.promptButton, styles.promptButtonPrimary]}
+              >
+                <Text style={styles.promptButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <ImageViewer
         visible={imageViewerVisible}
         images={imageViewerItems}
@@ -603,14 +904,15 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#000" },
+  root: { flex: 1, backgroundColor: "#121212" },
   header: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
     paddingTop: 56, paddingHorizontal: 20, paddingBottom: 14,
   },
   title: { color: "#fff", fontSize: 22, fontWeight: "700" },
   backButtonRow: { flexDirection: "row", alignItems: "center", flex: 1, marginRight: 12, gap: 6 },
-  backGlyph: { color: "#fff", fontSize: 26, fontWeight: "700" },
+  backGlyph: { color: "#fff", fontSize: 28, fontWeight: "700" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   iconButton: {
     paddingHorizontal: 14, height: 40, borderRadius: 20, backgroundColor: GLASS_BG,
     borderWidth: 1, borderColor: GLASS_BORDER, justifyContent: "center", alignItems: "center",
@@ -622,62 +924,214 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: GLASS_BG,
     borderWidth: 1, borderColor: GLASS_BORDER, marginRight: 10,
   },
-  tabActive: { backgroundColor: "rgba(255,255,255,0.9)" },
+  tabActive: { backgroundColor: "#FFFFFF" },
   tabText: { color: "#fff", fontWeight: "600", fontSize: 13 },
-  tabTextActive: { color: "#FF6B6B" },
+  tabTextActive: { color: "#000000" },
 
   listContent: { paddingHorizontal: 20, paddingBottom: 150 },
 
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
-  rowArt: { width: 48, height: 48, borderRadius: 8, backgroundColor: GLASS_BG, marginRight: 12 },
+  rowArt: { width: 48, height: 48, borderRadius: 4, backgroundColor: GLASS_BG, marginRight: 12 },
   rowTextWrap: { flex: 1, marginRight: 10 },
   rowTitle: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  rowArtist: { color: "rgba(255,255,255,0.7)", fontSize: 12, marginTop: 2 },
-  rowDuration: { color: "rgba(255,255,255,0.6)", fontSize: 12 },
+  rowArtist: { color: "#B3B3B3", fontSize: 12, marginTop: 2 },
+  rowDuration: { color: "#B3B3B3", fontSize: 12 },
 
   createTile: {
     backgroundColor: GLASS_BG, borderWidth: 1, borderColor: GLASS_BORDER, borderRadius: 14,
-    paddingVertical: 14, alignItems: "center", marginBottom: 16,
+    paddingVertical: 14, alignItems: "center", marginBottom: 16, width: "100%",
   },
   createTileText: { color: "#fff", fontWeight: "700" },
 
   folderRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     backgroundColor: GLASS_BG, borderWidth: 1, borderColor: GLASS_BORDER, borderRadius: 12,
-    paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10,
+    paddingVertical: 12, paddingHorizontal: 14, marginBottom: 10,
   },
   folderName: { color: "#fff", fontWeight: "600", fontSize: 14, flex: 1 },
-  folderCount: { color: "rgba(255,255,255,0.6)", fontSize: 12, marginRight: 12 },
+  folderCount: { color: "#B3B3B3", fontSize: 12, marginRight: 12 },
   folderDelete: { color: "#FF6B6B", fontSize: 12, fontWeight: "600" },
 
-  emptyText: { color: "rgba(255,255,255,0.6)", textAlign: "center", marginTop: 30, lineHeight: 20 },
+  /* Playlist Grid Tiles Layout */
+  tileColumnWrapper: {
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 16,
+  },
+  playlistTile: {
+    flex: 1,
+    maxWidth: "48%",
+  },
+  playlistTileCoverWrap: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: GLASS_BG,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    marginBottom: 8,
+  },
+  playlistTileArt: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 14,
+  },
+  playlistTileTitle: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  playlistTileSub: {
+    color: "#B3B3B3",
+    fontSize: 12,
+  },
 
+  emptyText: { color: "#B3B3B3", textAlign: "center", marginTop: 30, lineHeight: 20 },
+
+  /* Spotify Playlist Hero View */
+  spotifyHeaderContainer: {
+    alignItems: "center",
+    paddingTop: 12,
+    paddingBottom: 20,
+  },
+  spotifyCoverArtWrap: {
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  spotifyCoverArt: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: GLASS_BG,
+  },
+  spotifyArtPlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  spotifyTitle: {
+    fontSize: 26,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    letterSpacing: 0.5,
+    textAlign: "center",
+  },
+  spotifySourceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+  },
+  spotifyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#1ED760",
+    marginRight: 6,
+  },
+  spotifySourceText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#B3B3B3",
+  },
+  spotifyMeta: {
+    fontSize: 12,
+    color: "#B3B3B3",
+    marginTop: 4,
+  },
+
+  /* Action Controls Bar */
+  spotifyActionBar: {
+    flexDirection: "row",
+    width: "100%",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 22,
+    paddingHorizontal: 4,
+  },
+  spotifyLeftActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+  },
+  spotifyRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  spotifyIconBtn: {
+    padding: 6,
+  },
+  spotifyIconTxt: {
+    color: "#FFFFFF",
+    fontSize: 20,
+  },
+
+  /* Primary Action Play Button (Follow-style slot) */
+  spotifyPlayBtn: {
+    flexDirection: "row",
+    height: 44,
+    paddingHorizontal: 22,
+    borderRadius: 22,
+    backgroundColor: "#1ED760",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  spotifyPlayIcon: {
+    color: "#000000",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  spotifyPlayText: {
+    color: "#000000",
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+
+  /* Playlist Search Bar */
+  playlistSearchBar: {
+    flexDirection: "row", alignItems: "center", backgroundColor: GLASS_BG,
+    borderWidth: 1, borderColor: GLASS_BORDER, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 8, marginBottom: 14, width: "100%",
+  },
+  playlistSearchIcon: { fontSize: 14, marginRight: 8 },
+  playlistSearchInput: { flex: 1, color: "#fff", fontSize: 14 },
+
+  /* Active Downloads */
   activeDownloadRow: {
     backgroundColor: GLASS_BG, borderWidth: 1, borderColor: GLASS_BORDER, borderRadius: 12,
     paddingHorizontal: 14, paddingVertical: 10, marginBottom: 8,
   },
   activeDownloadTitle: { color: "#fff", fontSize: 13, fontWeight: "600", marginBottom: 6 },
   activeDownloadTrack: { height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" },
-  activeDownloadFill: { height: 4, borderRadius: 2, backgroundColor: "#6BCB77" },
-  activeDownloadPct: { color: "rgba(255,255,255,0.6)", fontSize: 10 },
+  activeDownloadFill: { height: 4, borderRadius: 2, backgroundColor: "#1ED760" },
+  activeDownloadPct: { color: "#B3B3B3", fontSize: 10 },
   activeDownloadFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6 },
   activeDownloadActions: { flexDirection: "row", gap: 10 },
   activeDownloadBtn: { paddingVertical: 2, paddingHorizontal: 4 },
   activeDownloadBtnText: { color: "#fff", fontSize: 11, fontWeight: "700" },
 
-  promptBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
+  /* Modals */
+  promptBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "center", alignItems: "center" },
   promptCard: {
-    width: 280, backgroundColor: "rgba(30,30,34,0.98)", borderRadius: 18, borderWidth: 1,
+    width: 280, backgroundColor: "#181818", borderRadius: 18, borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)", padding: 20,
   },
   promptTitle: { color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 14 },
+  editPlaylistLabel: { color: "#B3B3B3", fontSize: 12, fontWeight: "600", marginBottom: 4 },
   promptInput: {
     borderWidth: 1, borderColor: "rgba(255,255,255,0.25)", borderRadius: 10,
-    paddingHorizontal: 12, paddingVertical: 10, color: "#fff", marginBottom: 16,
+    paddingHorizontal: 12, paddingVertical: 8, color: "#fff", marginBottom: 14,
   },
   promptButtons: { flexDirection: "row", justifyContent: "flex-end", gap: 12 },
   promptButton: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
-  promptButtonPrimary: { backgroundColor: "#FF6B6B" },
+  promptButtonPrimary: { backgroundColor: "#1ED760" },
   promptButtonText: { color: "#fff", fontWeight: "600" },
 
   pickerRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.1)" },
