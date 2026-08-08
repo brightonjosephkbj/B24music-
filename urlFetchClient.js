@@ -6,7 +6,7 @@
 // sites that hide the real stream URL behind obfuscated JS (YouTube, etc.).
 // ---------------------------------------------------------------------------
 
-import { gatewayHeaders } from "./apiClient";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 
@@ -111,7 +111,7 @@ export async function tryClientSideFetch(pageUrl) {
 // service used to provide.
 export async function fetchInfoFromBackend(pageUrl) {
   const params = new URLSearchParams({ url: pageUrl });
-  const res = await fetch(`${API_BASE}/api/downloads/remote/info?${params.toString()}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/downloads/remote/info?${params.toString()}`, { headers: await authedHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Server responded ${res.status}`);
 
@@ -157,7 +157,7 @@ export async function resolveUrl(pageUrl) {
 export async function remoteFetch(pageUrl, { appId = "b24music", category = "download", mode = "audio" } = {}) {
   const res = await fetch(`${API_BASE}/api/downloads/remote/fetch`, {
     method: "POST",
-    headers: gatewayHeaders({ "Content-Type": "application/json" }),
+    headers: await authedHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ url: pageUrl, app_id: appId, category, mode }),
   });
   const data = await res.json().catch(() => ({}));
@@ -181,7 +181,7 @@ export function isSpotifyPlaylistUrl(url) {
 // tracks: [{title, artist, duration_ms, album_art, spotify_id}] }.
 export async function fetchSpotifyPlaylist(pageUrl) {
   const params = new URLSearchParams({ url: pageUrl });
-  const res = await fetch(`${API_BASE}/api/apicache/api/music/spotify_playlist?${params.toString()}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/music/spotify_playlist?${params.toString()}`, { headers: await authedHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.error) throw new Error(data.error || `Server responded ${res.status}`);
   return data;
@@ -192,7 +192,7 @@ export async function fetchSpotifyPlaylist(pageUrl) {
 // downloadable via the existing yt-dlp/Lightning pipeline.
 export async function searchYoutubeMatch(query) {
   const params = new URLSearchParams({ q: query, limit: "1" });
-  const res = await fetch(`${API_BASE}/api/downloads/remote/search?${params.toString()}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/downloads/remote/search?${params.toString()}`, { headers: await authedHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) return null;
   const results = data.data || [];
@@ -207,7 +207,7 @@ export async function searchYoutubeMatch(query) {
 // anything server-side. Use remoteFetch() above to actually store a copy.
 export async function lightningExtract(pageUrl, mode = "audio", quality = "medium") {
   const params = new URLSearchParams({ url: pageUrl, mode, quality });
-  const res = await fetch(`${API_BASE}/api/downloads/remote/stream-info?${params.toString()}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/downloads/remote/stream-info?${params.toString()}`, { headers: await authedHeaders() });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.ok) throw new Error(data.error || `Server responded ${res.status}`);
   return data.data;

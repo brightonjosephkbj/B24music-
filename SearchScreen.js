@@ -17,7 +17,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import { getDownloads, saveDownloads } from "./libraryStorage";
 import { useDownloads } from "./DownloadsContext";
 
-import { gatewayHeaders } from "./apiClient";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
@@ -110,8 +110,8 @@ export default function SearchScreen({ onTrackPress }) {
       const params = new URLSearchParams({ q });
 
       const [libraryRes, ytRes] = await Promise.allSettled([
-        fetch(`${API_BASE}/api/apicache/api/music/search?${params.toString()}`, { headers: gatewayHeaders() }),
-        fetch(`${API_BASE}/api/downloads/remote/search?${params.toString()}`, { headers: gatewayHeaders() }),
+        fetch(`${API_BASE}/api/apicache/api/music/search?${params.toString()}`, { headers: await authedHeaders() }),
+        fetch(`${API_BASE}/api/downloads/remote/search?${params.toString()}`, { headers: await authedHeaders() }),
       ]);
 
       let catList = [];
@@ -231,7 +231,7 @@ export default function SearchScreen({ onTrackPress }) {
     setResolvingIds((prev) => new Set(prev).add(id));
     try {
       const params = new URLSearchParams({ url: ytItem.url, mode: option.mode, quality: option.quality });
-      const res = await fetch(`${API_BASE}/api/downloads/remote/stream-info?${params.toString()}`, { headers: gatewayHeaders() });
+      const res = await fetch(`${API_BASE}/api/downloads/remote/stream-info?${params.toString()}`, { headers: await authedHeaders() });
       if (!res.ok) throw new Error(`Resolve failed (${res.status})`);
       return await res.json();
     } catch (err) {
