@@ -1,27 +1,19 @@
 import * as MediaLibrary from "expo-media-library/legacy";
+import { parseLibraryFilename, B24_ALBUM_NAME } from "./libraryFileNaming";
 
-// Scans the phone's actual storage for playable audio/video files and
-// normalizes them into the same shape as an app "download" entry, so
-// LibraryScreen can render them side by side without special-casing.
-//
-// Deliberately does NOT read ID3 tags or embedded artwork here - an
-// earlier version used expo-music-info-2 to read title/artist/album per
-// file, firing one native-bridge call per audio file via Promise.all.
-// With a real library (hundreds of files) that meant hundreds of
-// simultaneous bridge calls at once, which is what was causing the app to
-// lag every time Library was opened. Title falls back to the filename and
-// artist to "Unknown Artist" - fast and reliable for any library size.
-
-function stripExtension(filename) {
-  return filename.replace(/\.[^/.]+$/, "");
-}
+// Scans only the app's own "B24 Music" album (not the whole device - that
+// used to pull in WhatsApp voice notes, random screen recordings, etc, all
+// showing as "Unknown Artist"). Title/artist come from the filename itself
+// (see libraryFileNaming.js), which survives an uninstall/reinstall since
+// it's baked in at save time - no ID3 reads, no bridge-call lag.
 
 function toLibraryItem(asset, type) {
+  const { title, artist } = parseLibraryFilename(asset.filename);
   return {
     id: `device_${asset.id}`,
     type, // "audio" | "video"
-    title: stripExtension(asset.filename || "Untitled"),
-    artist: "Unknown Artist",
+    title,
+    artist,
     artwork: null,
     localUri: asset.uri,
     duration: asset.duration || 0,
@@ -49,9 +41,14 @@ export async function scanDeviceMedia() {
   }
 
   try {
+    const album = await MediaLibrary.getAlbumAsync(B24_ALBUM_NAME);
+    if (!album) {
+      return { granted: true, audio: [], video: [], error: null };
+    }
+
     const [audioResult, videoResult] = await Promise.all([
-      MediaLibrary.getAssetsAsync({ mediaType: MediaLibrary.MediaType.audio, first: 500 }),
-      MediaLibrary.getAssetsAsync({ mediaType: MediaLibrary.MediaType.video, first: 500 }),
+      MediaLibrary.getAssetsAsync({ album, mediaType: MediaLibrary.MediaType.audio, first: 500 }),
+      MediaLibrary.getAssetsAsync({ album, mediaType: MediaLibrary.MediaType.video, first: 500 }),
     ]);
 
     console.log(

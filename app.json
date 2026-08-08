@@ -71,13 +71,11 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://nrighton233j-b24music.hf.space/api/updates/manifest",
+      "url": "https://gateway-cah4.onrender.com/api/ota/api/manifest?app_id=b24music",
       "enabled": true,
       "fallbackToCacheTimeout": 30000,
-      "codeSigningCertificate": "./certs/certificate.pem",
-      "codeSigningMetadata": {
-        "keyid": "main",
-        "alg": "rsa-v1_5-sha256"
+      "requestHeaders": {
+        "X-Gateway-Key": "Joy_brightonjosephkbj_Joan"
       }
     },
     "platforms": [

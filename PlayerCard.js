@@ -16,7 +16,9 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import ContextMenuCard from "./ContextMenuCard";
 import * as FileSystem from "expo-file-system/legacy";
+import * as MediaLibrary from "expo-media-library/legacy";
 import { addDownload, isDownloaded } from "./libraryStorage";
+import { buildLibraryFilename, B24_ALBUM_NAME } from "./libraryFileNaming";
 
 import { gatewayHeaders } from "./apiClient";
 
@@ -97,12 +99,15 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
     setLibDownloading(true);
     setLibProgress(0);
     try {
-      const safeTitle = (track.title || "download").replace(/[^A-Za-z0-9 _-]/g, "").trim() || "download";
-      const localUri = FileSystem.documentDirectory + `${safeTitle}.mp3`;
+      // Title/artist are baked into the filename (see libraryFileNaming.js) so
+      // metadata survives even if the app is uninstalled and this AsyncStorage
+      // entry is wiped - a rescan of the B24 Music album can rebuild it.
+      const filename = buildLibraryFilename(track.title, track.artist, key);
+      const tempUri = FileSystem.cacheDirectory + filename;
 
       const downloadResumable = FileSystem.createDownloadResumable(
         uri,
-        localUri,
+        tempUri,
         {},
         (progressEvent) => {
           const pct =
@@ -114,21 +119,38 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
       );
       await downloadResumable.downloadAsync();
 
+      const perm = await MediaLibrary.requestPermissionsAsync();
+      if (!perm.granted) {
+        throw new Error("Storage permission is required to save songs permanently");
+      }
+
+      // Save into public storage (survives app uninstall) instead of the
+      // app-private cache, then group it into a dedicated album so the
+      // scanner can find only our own songs, not every file on the device.
+      const asset = await MediaLibrary.createAssetAsync(tempUri);
+      let album = await MediaLibrary.getAlbumAsync(B24_ALBUM_NAME);
+      if (album) {
+        await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+      } else {
+        album = await MediaLibrary.createAlbumAsync(B24_ALBUM_NAME, asset, false);
+      }
+
+      await FileSystem.deleteAsync(tempUri, { idempotent: true });
+
       await addDownload({
         id: key,
         type: "audio",
         title: track.title,
         artist: track.artist,
         artwork: track.artwork,
-        localUri,
+        localUri: asset.uri,
         duration: track.duration || 0,
         source: track.provider,
         addedAt: Date.now(),
       });
       setLibDownloaded(true);
     } catch (err) {
-      // Non-critical convenience action - fail silently rather than
-      // interrupting playback with an error the person can't act on here.
+      setError && setError(err.message || "Download failed");
     } finally {
       setLibDownloading(false);
     }
