@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system";
 
 export const API_BASE = "https://gateway-cah4.onrender.com";
 const GATEWAY_KEY = "Joy_brightonjosephkbj_Joan";
@@ -47,23 +48,24 @@ export async function gatewayFetch(path, options = {}) {
 // which routes it to the dedicated Avatar HF dataset repo and forces it
 // public. Returns the resulting public URL, or throws on failure.
 export async function uploadAvatar(userId, fileUri) {
-  const form = new FormData();
-  form.append("file", {
-    uri: fileUri,
-    name: "avatar.jpg",
-    type: "image/jpeg",
-  });
-  form.append("app_id", "b24music");
-  form.append("category", "avatar");
-
-  const headers = await authedHeaders(); // no Content-Type - fetch sets multipart boundary
-  const uploadRes = await fetch(`${API_BASE}/api/downloads/files/upload`, {
-    method: "POST",
-    headers,
-    body: form,
-  });
-  const uploadData = await uploadRes.json().catch(() => ({}));
-  if (!uploadRes.ok || !uploadData.ok) {
+  // FileSystem.uploadAsync (not fetch+FormData) - the picker's URI is often
+  // a content:// path on Android that RN's own FormData/fetch layer can't
+  // always serialize ("Unsupported FormDataPart implementation"). This is
+  // a native multipart uploader purpose-built to handle that correctly.
+  const headers = await authedHeaders(); // no Content-Type - native layer sets multipart boundary
+  const uploadRes = await FileSystem.uploadAsync(
+    `${API_BASE}/api/downloads/files/upload`,
+    fileUri,
+    {
+      fieldName: "file",
+      httpMethod: "POST",
+      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+      headers,
+      parameters: { app_id: "b24music", category: "avatar" },
+    }
+  );
+  const uploadData = JSON.parse(uploadRes.body || "{}");
+  if (uploadRes.status < 200 || uploadRes.status >= 300 || !uploadData.ok) {
     throw new Error(uploadData.error || "Avatar upload failed");
   }
   const avatarUrl = uploadData.data.url;

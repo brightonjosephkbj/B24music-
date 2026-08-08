@@ -127,7 +127,7 @@ export default function SearchScreen({ onTrackPress }) {
       let ytList = [];
       if (ytRes.status === "fulfilled" && ytRes.value.ok) {
         const ytData = await ytRes.value.json();
-        ytList = ytData.results || [];
+        ytList = (ytData.ok ? ytData.data : []) || [];
         setYtResults(ytList);
       } else {
         setYtResults([]);
