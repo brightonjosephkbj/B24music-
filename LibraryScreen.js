@@ -12,6 +12,8 @@ import {
   RefreshControl,
   Alert,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import * as Sharing from "expo-sharing";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   getDownloads,
@@ -149,7 +151,16 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
       {
         key: "share",
         label: "Share",
-        onPress: () => Share.share({ message: menuItem.title, url: menuItem.localUri || "" }),
+        onPress: async () => {
+          if (menuItem.localUri && (await Sharing.isAvailableAsync())) {
+            // Actually shares the audio/video file itself via a content:// URI -
+            // Share.share()'s url field is iOS-only, so it silently dropped the
+            // file on Android and only ever sent the title text.
+            await Sharing.shareAsync(menuItem.localUri);
+          } else {
+            Share.share({ message: menuItem.title });
+          }
+        },
       },
       {
         key: "playNext",
@@ -395,7 +406,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
             <Image source={art} style={styles.spotifyCoverArt} />
           ) : (
             <View style={[styles.spotifyCoverArt, styles.spotifyArtPlaceholder]}>
-              <Text style={{ fontSize: 60 }}>🎵</Text>
+              <Ionicons name="musical-notes" size={60} color="rgba(255,255,255,0.4)" />
             </View>
           )}
         </View>
@@ -421,7 +432,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
                 setEditPlaylistVisible(true);
               }}
             >
-              <Text style={styles.spotifyIconTxt}>✏️</Text>
+              <Ionicons name="pencil" size={20} color="#FFFFFF" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -432,7 +443,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
                 });
               }}
             >
-              <Text style={styles.spotifyIconTxt}>📤</Text>
+              <Ionicons name="share-outline" size={20} color="#FFFFFF" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -471,7 +482,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
               style={styles.spotifyIconBtn}
               onPress={() => shufflePlaylist(selectedPlaylist)}
             >
-              <Text style={[styles.spotifyIconTxt, { color: "#1ED760" }]}>🔀</Text>
+              <Ionicons name="shuffle" size={20} color="#1ED760" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -705,7 +716,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
                   </TouchableOpacity>
 
                   <View style={styles.playlistSearchBar}>
-                    <Text style={styles.playlistSearchIcon}>🔍</Text>
+                    <Ionicons name="search" size={14} color="rgba(255,255,255,0.6)" />
                     <TextInput
                       style={styles.playlistSearchInput}
                       placeholder="Search playlists..."
@@ -726,7 +737,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
                         <Image source={art} style={styles.playlistTileArt} />
                       ) : (
                         <View style={[styles.playlistTileArt, styles.spotifyArtPlaceholder]}>
-                          <Text style={{ fontSize: 32 }}>🎵</Text>
+                          <Ionicons name="musical-notes" size={32} color="rgba(255,255,255,0.4)" />
                         </View>
                       )}
                     </View>

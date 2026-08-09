@@ -10,6 +10,7 @@ import {
   Image,
   TextInput,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Updates from "expo-updates";
 import * as ImagePicker from "expo-image-picker";
@@ -200,7 +201,7 @@ export default function SettingsScreen({ authUser, onSignOutPress, onProfileUpda
                     ) : (
                       <>
                         <TouchableOpacity onPress={saveUsername}>
-                          <Text style={styles.editConfirm}>✓</Text>
+                          <Ionicons name="checkmark" size={20} color="#7AC547" />
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={() => {
@@ -209,7 +210,7 @@ export default function SettingsScreen({ authUser, onSignOutPress, onProfileUpda
                             setUsernameError(null);
                           }}
                         >
-                          <Text style={styles.editCancel}>✕</Text>
+                          <Ionicons name="close" size={20} color="#FF6B6B" />
                         </TouchableOpacity>
                       </>
                     )}
@@ -264,7 +265,7 @@ export default function SettingsScreen({ authUser, onSignOutPress, onProfileUpda
                     ) : (
                       <View style={{ flexDirection: "row", gap: 16 }}>
                         <TouchableOpacity onPress={saveBio}>
-                          <Text style={styles.editConfirm}>✓</Text>
+                          <Ionicons name="checkmark" size={20} color="#7AC547" />
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={() => {
@@ -273,7 +274,7 @@ export default function SettingsScreen({ authUser, onSignOutPress, onProfileUpda
                             setBioError(null);
                           }}
                         >
-                          <Text style={styles.editCancel}>✕</Text>
+                          <Ionicons name="close" size={20} color="#FF6B6B" />
                         </TouchableOpacity>
                       </View>
                     )}

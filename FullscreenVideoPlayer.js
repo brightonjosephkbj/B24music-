@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Animated, PanResponder, Dimensions } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { VideoView } from "expo-video";
 
 const ACCENT = "#FF6B6B";
@@ -202,7 +203,7 @@ export default function FullscreenVideoPlayer({ track, engine, onClose, onNext, 
 
               <Animated.View style={{ transform: [{ scale: playScale }] }}>
                 <TouchableOpacity onPress={onPlayPausePress} style={styles.playButton}>
-                  <Text style={styles.playGlyph}>{engine?.isPlaying ? "❚❚" : "▶"}</Text>
+                  <Ionicons name={engine?.isPlaying ? "pause" : "play"} size={24} color="#fff" />
                 </TouchableOpacity>
               </Animated.View>
 

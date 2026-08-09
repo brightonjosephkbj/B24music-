@@ -65,7 +65,8 @@
         }
       ],
       "expo-asset",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-sharing"
     ],
     "runtimeVersion": {
       "policy": "appVersion"

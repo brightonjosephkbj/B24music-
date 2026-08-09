@@ -18,6 +18,8 @@ import { getDownloads, saveDownloads } from "./libraryStorage";
 import { useDownloads } from "./DownloadsContext";
 
 import { authedHeaders } from "./apiClient";
+import { buildLibraryFilename } from "./libraryFileNaming";
+import { saveDownloadToSharedStorage } from "./mediaLibrarySave";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
@@ -176,7 +178,7 @@ export default function SearchScreen({ onTrackPress }) {
     setDownloadProgress(0);
     startDownload(key, { title: track.title });
     try {
-      const localUri = FileSystem.documentDirectory + safeFilename(track.title, "mp3");
+      const localUri = FileSystem.documentDirectory + buildLibraryFilename(track.title, track.artist, key, "mp3");
 
       const downloadResumable = FileSystem.createDownloadResumable(
         track.download_url,
@@ -198,6 +200,7 @@ export default function SearchScreen({ onTrackPress }) {
       });
       await downloadResumable.downloadAsync();
       if (isCancelled(key)) return;
+      await saveDownloadToSharedStorage(localUri);
 
       const entry = {
         id: key,
@@ -282,7 +285,7 @@ export default function SearchScreen({ onTrackPress }) {
     setDownloadProgress(0);
     startDownload(key, { title: streamInfo.title || ytItem.title });
     try {
-      const localUri = FileSystem.documentDirectory + safeFilename(streamInfo.title || ytItem.title, streamInfo.ext || option.ext);
+      const localUri = FileSystem.documentDirectory + buildLibraryFilename(streamInfo.title || ytItem.title, ytItem.uploader, key, streamInfo.ext || option.ext);
 
       const downloadResumable = FileSystem.createDownloadResumable(
         streamInfo.stream_url,
@@ -304,6 +307,7 @@ export default function SearchScreen({ onTrackPress }) {
       });
       await downloadResumable.downloadAsync();
       if (isCancelled(key)) return;
+      await saveDownloadToSharedStorage(localUri);
 
       const entry = {
         id: key,
@@ -352,9 +356,10 @@ export default function SearchScreen({ onTrackPress }) {
       if (!streamInfo) continue;
 
       try {
-        const localUri = FileSystem.documentDirectory + safeFilename(streamInfo.title || ytItem.title, streamInfo.ext || option.ext);
+        const localUri = FileSystem.documentDirectory + buildLibraryFilename(streamInfo.title || ytItem.title, ytItem.uploader, key, streamInfo.ext || option.ext);
         const downloadResumable = FileSystem.createDownloadResumable(streamInfo.stream_url, localUri, {});
         await downloadResumable.downloadAsync();
+        await saveDownloadToSharedStorage(localUri);
 
         const entry = {
           id: key,

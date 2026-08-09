@@ -18,14 +18,14 @@ function sanitizePart(str) {
   );
 }
 
-export function buildLibraryFilename(title, artist, uniqueId) {
+export function buildLibraryFilename(title, artist, uniqueId, ext = "mp3") {
   const safeTitle = sanitizePart(title || "Untitled");
   const safeArtist = sanitizePart(artist || "Unknown Artist");
   const safeId = (uniqueId || Date.now().toString(36))
     .toString()
     .replace(/[^a-zA-Z0-9]/g, "")
     .slice(-8);
-  return `${safeTitle}${DELIM}${safeArtist}${DELIM}${safeId}.mp3`;
+  return `${safeTitle}${DELIM}${safeArtist}${DELIM}${safeId}.${ext}`;
 }
 
 export function parseLibraryFilename(filename) {

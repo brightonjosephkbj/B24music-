@@ -14,7 +14,8 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import * as FileSystem from "expo-file-system/legacy";
-import * as MediaLibrary from "expo-media-library";
+import { buildLibraryFilename } from "./libraryFileNaming";
+import { saveDownloadToSharedStorage } from "./mediaLibrarySave";
 import {
   resolveUrl,
   backendDownloadUrl,
@@ -148,7 +149,7 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
       }
 
       const ext = mode === "audio" ? "mp3" : "mp4";
-      const localUri = FileSystem.documentDirectory + safeFilename(result.title, ext);
+      const localUri = FileSystem.documentDirectory + buildLibraryFilename(result.title, result.artist, dlKey, ext);
 
       const downloadResumable = FileSystem.createDownloadResumable(
         remoteUrl,
@@ -165,14 +166,7 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
       );
       await downloadResumable.downloadAsync();
 
-      try {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        if (status === "granted") {
-          await MediaLibrary.saveToLibraryAsync(localUri);
-        }
-      } catch (mediaErr) {
-        console.warn("Couldn't save to public MediaLibrary:", mediaErr);
-      }
+        await saveDownloadToSharedStorage(localUri);
 
       const entry = {
         id: `${result.provider}_${Date.now()}`,
@@ -256,7 +250,7 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
         const streamInfo = await lightningExtract(match.url, "audio", option.quality);
         if (isCancelled(dlKey)) continue;
 
-        const localUri = FileSystem.documentDirectory + safeFilename(`${track.artist} - ${track.title}`, streamInfo.ext || option.ext);
+        const localUri = FileSystem.documentDirectory + buildLibraryFilename(track.title, track.artist, dlKey, streamInfo.ext || option.ext);
 
         const downloadResumable = FileSystem.createDownloadResumable(
           streamInfo.stream_url,
@@ -278,6 +272,7 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
 
         await downloadResumable.downloadAsync();
         if (isCancelled(dlKey)) continue;
+        await saveDownloadToSharedStorage(localUri);
 
         const entryId = dlKey;
         const entry = {

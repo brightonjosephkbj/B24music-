@@ -13,6 +13,7 @@ import {
   Alert,
   PanResponder,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import ContextMenuCard from "./ContextMenuCard";
 import * as FileSystem from "expo-file-system/legacy";
@@ -408,7 +409,7 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
           style={styles.closeButton}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Text style={styles.closeButtonText}>✕</Text>
+          <Ionicons name="close" size={16} color="#fff" />
         </TouchableOpacity>
 
         {!libDownloaded && (
@@ -486,7 +487,7 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
 
               <Animated.View style={{ transform: [{ scale: playScale }] }}>
                 <TouchableOpacity onPress={onPlayPausePress} style={styles.playButton}>
-                  <Text style={styles.playGlyph}>{engine?.isPlaying ? "❚❚" : "▶"}</Text>
+                  <Ionicons name={engine?.isPlaying ? "pause" : "play"} size={22} color="#fff" />
                 </TouchableOpacity>
               </Animated.View>
 

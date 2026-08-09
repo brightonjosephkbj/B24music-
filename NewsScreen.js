@@ -11,6 +11,7 @@ import {
   Modal,
   Share,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { WebView } from "react-native-webview";
 
@@ -168,7 +169,7 @@ export default function NewsScreen({ onBack }) {
                     {timeAgo(a.published_at)} · {a.provider || "web"}
                   </Text>
                   <View style={styles.postActions}>
-                    <Text style={styles.postActionIcon}>♡</Text>
+                    <Ionicons name="heart-outline" size={18} color="rgba(255,255,255,0.7)" />
                     <TouchableOpacity
                       onPress={() => a.url && Share.share({ message: a.title, url: a.url })}
                     >

@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Image } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { VideoView } from "expo-video";
 import { useDownloads } from "./DownloadsContext";
 
@@ -172,7 +173,7 @@ export default function AppShell({
                   style={styles.transportMini}
                   hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                 >
-                  <Text style={styles.transportMiniGlyph}>{isPlaying ? "❚❚" : "▶"}</Text>
+                  <Ionicons name={isPlaying ? "pause" : "play"} size={13} color="#fff" />
                 </TouchableOpacity>
 
                 <TouchableOpacity

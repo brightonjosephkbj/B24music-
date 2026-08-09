@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 
 // ---------------------------------------------------------------------------
@@ -241,7 +242,7 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.avatarCircle} onPress={onSettingsPress}>
-              <Text style={styles.avatarInitial}>⚙</Text>
+              <Ionicons name="settings-outline" size={16} color="#fff" />
             </TouchableOpacity>
             <Text style={styles.greeting}>Hey there</Text>
           </View>
