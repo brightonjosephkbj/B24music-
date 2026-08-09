@@ -1,24 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from "expo-audio";
+import { setAudioModeAsync } from "expo-audio";
 import { useVideoPlayer } from "expo-video";
 import { useEvent } from "expo";
+import TrackPlayer, {
+  Capability,
+  Event,
+  State,
+  usePlaybackState,
+  useProgress,
+  useTrackPlayerEvents,
+} from "@rntp/player";
 
 // ---------------------------------------------------------------------------
-// Unified playback engine for both mp3 (expo-audio) and mp4 (expo-video).
+// Unified playback engine for both mp3 (RNTP) and mp4 (expo-video).
 //
 // track shape expected: { type: "audio" | "video", localUri?, stream_url?,
 // download_url? }. Source priority: a local downloaded file always wins over
 // a remote stream URL, so playback keeps working offline once downloaded.
 //
-// IMPORTANT ARCHITECTURE NOTE: both useAudioPlayer(source) and
-// useVideoPlayer(source, setup) only read their `source` argument on the
-// very first render that creates the player - changing it on a later
-// render does NOT reload the player. Since this hook is a single top-level
-// instance shared across the whole app (App.js calls it once, tracks
-// change over time), both players are created once with a null source,
-// and every subsequent track change explicitly calls .replace()/
-// videoPlayer.replace() - the documented, reliable way to swap what an
-// already-created player is pointed at.
+// AUDIO now goes through react-native-track-player instead of expo-audio,
+// because expo-audio's lock screen integration has no next/previous track
+// support (Android/iOS both) as of this writing - RNTP's notification does.
+// RNTP is kept to a single-track queue (reset + add on every track change),
+// mirroring how videoPlayer.replace() swaps sources below. App.js's own
+// queue/shuffle/wraparound state stays the single source of truth; remote
+// next/prev from the notification reach it via playbackServiceBridge.js
+// rather than TrackPlayer's own (unused) multi-track queue methods.
+//
+// video keeps using expo-video exactly as before - only the audio branch
+// changed here.
 // ---------------------------------------------------------------------------
 
 function resolveUri(track) {
@@ -26,9 +36,10 @@ function resolveUri(track) {
   return track.localUri || track.stream_url || track.download_url || null;
 }
 
-// Configures the audio session once, app-wide, so playback survives the
-// screen locking or the app backgrounding. Without this, expo-audio stops
-// the moment the app loses focus - this was previously never called at all.
+// Configures the shared AVAudioSession/audio focus once, app-wide, so
+// playback survives the screen locking or the app backgrounding. Kept from
+// the expo-audio setup since expo-video's background audio still rides on
+// the same underlying session.
 let audioModeConfigured = false;
 async function ensureAudioMode() {
   if (audioModeConfigured) return;
@@ -45,19 +56,62 @@ async function ensureAudioMode() {
   }
 }
 
+// One-time RNTP setup + notification capabilities. compactCapabilities is
+// what actually renders on the lock-screen/collapsed notification, so
+// SkipToNext/SkipToPrevious must be in there, not just capabilities.
+let rntpConfigured = false;
+async function ensureRNTPSetup() {
+  if (rntpConfigured) return;
+  rntpConfigured = true;
+  try {
+    await TrackPlayer.setupPlayer();
+    await TrackPlayer.updateOptions({
+      capabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+        Capability.SeekTo,
+        Capability.Stop,
+      ],
+      compactCapabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+      ],
+      notificationCapabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+        Capability.SeekTo,
+      ],
+    });
+  } catch (err) {
+    console.warn("Failed to set up TrackPlayer:", err);
+  }
+}
+
 export default function usePlaybackEngine(track) {
   useEffect(() => {
     ensureAudioMode();
+    ensureRNTPSetup();
   }, []);
 
   const isVideo = track?.type === "video";
   const uri = resolveUri(track);
 
-  // ---- Audio branch (expo-audio) - created once, idle, no initial source ----
-  const audioPlayer = useAudioPlayer(null);
-  const audioStatus = useAudioPlayerStatus(audioPlayer);
+  // ---- Audio branch (RNTP) ----
+  const playbackState = usePlaybackState();
+  const progress = useProgress(250);
+  const [audioDidJustFinish, setAudioDidJustFinish] = useState(false);
 
-  // ---- Video branch (expo-video) - same idea, created once ----
+  useTrackPlayerEvents([Event.PlaybackQueueEnded], (event) => {
+    if (!isVideo) setAudioDidJustFinish(true);
+  });
+
+  // ---- Video branch (expo-video) - unchanged ----
   const videoPlayer = useVideoPlayer(null, (player) => {
     player.loop = false;
   });
@@ -65,9 +119,7 @@ export default function usePlaybackEngine(track) {
     isPlaying: videoPlayer?.playing ?? false,
   });
 
-  // Swap the active player's source whenever the resolved uri actually
-  // changes - this is the real fix, replacing the old (broken) assumption
-  // that passing a different `source` prop would reload automatically.
+  // Swap the active source whenever the resolved uri actually changes.
   const lastLoadedUri = useRef(null);
   const prevIsVideo = useRef(isVideo);
 
@@ -77,21 +129,35 @@ export default function usePlaybackEngine(track) {
     // silently in the background.
     if (prevIsVideo.current !== isVideo) {
       if (prevIsVideo.current) videoPlayer?.pause();
-      else audioPlayer?.pause();
+      else TrackPlayer.pause().catch(() => {});
       prevIsVideo.current = isVideo;
     }
 
     if (uri === lastLoadedUri.current) return;
     lastLoadedUri.current = uri;
+    setAudioDidJustFinish(false);
 
     if (!uri) return;
 
     if (isVideo) {
       videoPlayer?.replace({ uri });
     } else {
-      audioPlayer?.replace({ uri });
+      (async () => {
+        try {
+          await TrackPlayer.reset();
+          await TrackPlayer.add({
+            id: track?.id != null ? String(track.id) : uri,
+            url: uri,
+            title: track?.title || "Unknown title",
+            artist: track?.artist || "Unknown artist",
+            artwork: track?.artwork || undefined,
+          });
+        } catch (err) {
+          console.warn("Failed to load track into TrackPlayer:", err);
+        }
+      })();
     }
-  }, [uri, isVideo, videoPlayer, audioPlayer]);
+  }, [uri, isVideo, videoPlayer, track]);
 
   // expo-video doesn't push continuous position updates by default, so we
   // poll currentTime on an interval while a video track is active.
@@ -108,32 +174,20 @@ export default function usePlaybackEngine(track) {
     if (isVideo) {
       videoPlayer?.play();
     } else {
-      // Lock-screen controls (title/artist/artwork + play/pause/skip) only
-      // show up if we tell the OS this player is the active one *before*
-      // starting playback - interruptionMode is already set to "doNotMix"
-      // in ensureAudioMode above, which the OS needs to associate the
-      // controls with this specific player correctly.
-      if (audioPlayer && track) {
-        try {
-          audioPlayer.setActiveForLockScreen(true, {
-            title: track.title || "Unknown title",
-            artist: track.artist || "Unknown artist",
-            artworkUrl: track.artwork || undefined,
-          });
-        } catch (err) {
-          console.warn("Failed to set lock screen metadata:", err);
-        }
-      }
-      audioPlayer?.play();
+      TrackPlayer.play().catch((err) =>
+        console.warn("Failed to play track:", err)
+      );
     }
-  }, [isVideo, videoPlayer, audioPlayer, track]);
+  }, [isVideo, videoPlayer]);
 
   const pause = useCallback(() => {
     if (isVideo) videoPlayer?.pause();
-    else audioPlayer?.pause();
-  }, [isVideo, videoPlayer, audioPlayer]);
+    else TrackPlayer.pause().catch(() => {});
+  }, [isVideo, videoPlayer]);
 
-  const isPlaying = isVideo ? !!playingEvent?.isPlaying : !!audioStatus?.playing;
+  const isPlaying = isVideo
+    ? !!playingEvent?.isPlaying
+    : playbackState?.state === State.Playing;
 
   const toggle = useCallback(() => {
     if (isPlaying) pause();
@@ -145,74 +199,47 @@ export default function usePlaybackEngine(track) {
       if (isVideo) {
         if (videoPlayer) videoPlayer.currentTime = seconds;
       } else {
-        audioPlayer?.seekTo(seconds);
+        TrackPlayer.seekTo(seconds).catch(() => {});
       }
     },
-    [isVideo, videoPlayer, audioPlayer]
+    [isVideo, videoPlayer]
   );
 
   // Playback rate: expo-video exposes a settable .playbackRate property;
-
-  // expo-audio's AudioPlayer exposes setPlaybackRate(rate, pitchCorrection).
-
-  // Wrapped defensively since exact method shape has shifted across SDKs.
-
+  // RNTP exposes TrackPlayer.setRate(rate).
   const setRate = useCallback(
-
     (rate) => {
-
       try {
-
         if (isVideo) {
-
           if (videoPlayer) videoPlayer.playbackRate = rate;
-
-        } else if (audioPlayer) {
-
-          if (typeof audioPlayer.setPlaybackRate === "function") {
-
-            audioPlayer.setPlaybackRate(rate, "medium");
-
-          } else {
-
-            audioPlayer.playbackRate = rate;
-
-          }
-
+        } else {
+          TrackPlayer.setRate(rate).catch(() => {});
         }
-
       } catch (err) {
-
         console.warn("Failed to set playback rate:", err);
-
       }
-
-  },
-
-  [isVideo, videoPlayer, audioPlayer]
-
+    },
+    [isVideo, videoPlayer]
   );
-
 
   return {
     isVideo,
     isPlaying,
-    // True for the single status update where expo-audio reports the
-    // current track just reached its end. Video finish detection isn't
-    // wired up yet - only audio tracks report this for now.
-    didJustFinish: !isVideo && !!audioStatus?.didJustFinish,
-    position: isVideo ? videoPosition : audioStatus?.currentTime || 0,
-    duration: isVideo ? videoPlayer?.duration || 0 : audioStatus?.duration || 0,
+    // True for the single event where RNTP reports the queue (i.e. the
+    // one loaded track) just ended. Video finish detection isn't wired up
+    // yet - only audio tracks report this for now.
+    didJustFinish: !isVideo && audioDidJustFinish,
+    position: isVideo ? videoPosition : progress?.position || 0,
+    duration: isVideo ? videoPlayer?.duration || 0 : progress?.duration || 0,
     isBuffering: isVideo
       ? videoPlayer?.status === "loading"
-      : !!audioStatus?.isBuffering,
+      : playbackState?.state === State.Buffering ||
+        playbackState?.state === State.Loading,
     play,
     pause,
     toggle,
     seekTo,
-
     setRate,
     videoPlayer: isVideo ? videoPlayer : null,
-    audioPlayer: !isVideo ? audioPlayer : null,
   };
 }

@@ -1,4 +1,5 @@
 import TrackPlayer, { Event } from '@rntp/player';
+import { triggerRemoteNext, triggerRemotePrevious } from './playbackServiceBridge';
 
 // Runs as a headless task on Android (registered in index.js) so remote
 // commands (lock screen, notification, headset buttons) work even when the
@@ -11,8 +12,8 @@ module.exports = async function () {
   TrackPlayer.addEventListener(Event.RemotePlay, () => TrackPlayer.play());
   TrackPlayer.addEventListener(Event.RemotePause, () => TrackPlayer.pause());
   TrackPlayer.addEventListener(Event.RemoteStop, () => TrackPlayer.pause());
-  TrackPlayer.addEventListener(Event.RemoteNext, () => TrackPlayer.skipToNext());
-  TrackPlayer.addEventListener(Event.RemotePrevious, () => TrackPlayer.skipToPrevious());
+TrackPlayer.addEventListener(Event.RemoteNext, () => triggerRemoteNext());
+TrackPlayer.addEventListener(Event.RemotePrevious, () => triggerRemotePrevious());
   TrackPlayer.addEventListener(Event.RemoteSeek, ({ position }) => {
     TrackPlayer.seekTo(position);
   });

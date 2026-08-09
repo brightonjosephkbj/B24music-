@@ -27,6 +27,7 @@ import MusicInfo from "expo-music-info-2";
 import { getCachedArtwork, setCachedArtwork } from "./deviceArtworkCache";
 import { registerForPushNotificationsAsync } from "./notifications";
 import LoginScreen, { getStoredAuth, clearStoredAuth, updateStoredAuth } from "./LoginScreen";
+import { setSkipHandlers } from "./playbackServiceBridge";
 
 // Device-scanned tracks skip ID3 reading in bulk (see localMediaScanner.js -
 // hundreds of native-bridge calls at once was the actual lag source). So
@@ -200,6 +201,14 @@ export default function App() {
     if (!queue.length) return;
     playAtIndex((queueIndex - 1 + queue.length) % queue.length);
   };
+
+  // Wire the RNTP notification's remote next/prev buttons back into this
+  // component's own queue logic (see playbackServiceBridge.js) - runs every
+  // render (no deps array) since nextTrack/prevTrack close over queue state
+  // and aren't memoized.
+  useEffect(() => {
+    setSkipHandlers(nextTrack, prevTrack);
+  });
 
   const expandPlayer = () => setPlayerExpanded(true);
   const collapsePlayer = () => setPlayerExpanded(false);
