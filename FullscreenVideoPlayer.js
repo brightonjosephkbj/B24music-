@@ -118,6 +118,10 @@ export default function FullscreenVideoPlayer({ track, engine, onClose, onNext, 
     }
   }, [engine?.position, engine?.duration]);
 
+  const handleSeek = (seconds) => {
+    engine?.seekTo(seconds);
+  };
+
   const onPlayPausePress = () => {
     Animated.sequence([
       Animated.timing(playScale, { toValue: 0.85, duration: 90, useNativeDriver: true }),
