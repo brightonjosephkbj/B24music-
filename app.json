@@ -90,12 +90,9 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://gateway-cah4.onrender.com/api/ota/api/manifest?app_id=b24music",
-      "enabled": false,
-      "fallbackToCacheTimeout": 30000,
-      "requestHeaders": {
-        "X-Gateway-Key": "Joy_brightonjosephkbj_Joan"
-      }
+      "url": "https://nrighton233j-api-cache.hf.space/api/updates/manifest?app_id=b24music",
+      "enabled": true,
+      "fallbackToCacheTimeout": 30000
     },
     "platforms": [
       "android",

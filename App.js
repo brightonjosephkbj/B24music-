@@ -29,7 +29,6 @@ import { getCachedArtwork, setCachedArtwork } from "./deviceArtworkCache";
 import { registerForPushNotificationsAsync } from "./notifications";
 import LoginScreen, { getStoredAuth, clearStoredAuth, updateStoredAuth } from "./LoginScreen";
 import { generateAIPlaylist } from "./aiPlaylist";
-import { updateNowPlayingWidget } from "./nowPlayingWidget";
 import { registerPlaybackControls } from "./playbackBridge";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -96,20 +95,6 @@ export default function App() {
 
   // Push the current track to the home screen widget whenever it changes -
   // no-op if the widget isn't placed on any home screen.
-  useEffect(() => {
-    // Guard: skip the widget push entirely when nothing is playing yet.
-    // updateNowPlayingWidget() isn't a cheap native no-op - it mounts the
-    // widget JSX on a real offscreen Fabric surface (view creation + font
-    // resolution) to produce RemoteViews. Firing that unconditionally on
-    // first render (nowPlaying === null) raced the app's own first frame
-    // at cold start and caused a black-screen ANR.
-    if (!nowPlaying) return;
-    updateNowPlayingWidget(nowPlaying, {
-      isPlaying: engine.isPlaying,
-      position: engine.position,
-      duration: engine.duration,
-    });
-  }, [nowPlaying?.id, nowPlaying?.provider, engine.isPlaying, engine.position, engine.duration]);
   const [updateInfo, setUpdateInfo] = useState(null); // set once if /api/ota/check finds a newer version
 
   // Silent launch-time check against the custom OTA backend (ota.py) - not

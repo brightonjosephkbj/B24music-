@@ -14,6 +14,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { PasteUrlCard, RecentPlayedCard } from "./HomeFeatureCards";
+import { PlaylistsRow, SimilarRow, RecentlyAddedRow, ArtistsRow, PodcastsRow } from "./HomeDiscoveryRows";
 
 // ---------------------------------------------------------------------------
 // CONFIG
@@ -53,7 +55,7 @@ const DRAWER_TILES = [
 // this screen doesn't assume any particular navigation library - wire them
 // up to whatever you're using (React Navigation, a simple state switch,
 // etc.) from the parent.
-export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress, onSettingsPress, onRecentPress }) {
+export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress, onSettingsPress, onRecentPress, nowPlaying, engine }) {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -259,6 +261,12 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
           </View>
         </View>
 
+        {/* ---------- Feature cards: Paste URL (left) + Recent Played (right) ---------- */}
+        <View style={styles.featureCardsRow}>
+          <PasteUrlCard onPress={onPasteLinkPress} />
+          <RecentPlayedCard nowPlaying={nowPlaying} engine={engine} onTrackPress={onTrackPress} />
+        </View>
+
         {/* ---------- Category chips ---------- */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
           {CHIPS.map((chip) => {
@@ -309,6 +317,14 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
         )}
 
         {loadingMore && <ActivityIndicator color="#fff" style={{ marginTop: 16 }} />}
+
+        {/* ---------- Discovery rows: local data + reused endpoints, each
+             renders nothing if it has nothing worth showing ---------- */}
+        <PlaylistsRow onTrackPress={onTrackPress} />
+        <SimilarRow onTrackPress={onTrackPress} />
+        <RecentlyAddedRow onTrackPress={onTrackPress} />
+        <ArtistsRow onTrackPress={onTrackPress} />
+        <PodcastsRow onTrackPress={onTrackPress} />
 
         {/* ---------- Quick-access strip hinting at the Glass Drawer ---------- */}
         <Text style={styles.sectionTitle}>More</Text>
@@ -367,6 +383,7 @@ const styles = StyleSheet.create({
   scrollContent: { paddingTop: 56, paddingHorizontal: 20, paddingBottom: 140 },
 
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 18 },
+  featureCardsRow: { flexDirection: "row", gap: 12, marginBottom: 18 },
   headerRight: { flexDirection: "row", gap: 8 },
   headerLeft: { flexDirection: "row", alignItems: "center" },
   avatarCircle: {
