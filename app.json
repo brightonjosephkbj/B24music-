@@ -66,25 +66,7 @@
       ],
       "expo-asset",
       "expo-notifications",
-      "expo-sharing",
-      [
-        "react-native-android-widget",
-        {
-          "widgets": [
-            {
-              "name": "NowPlaying",
-              "label": "B24music Now Playing",
-              "minWidth": "220dp",
-              "minHeight": "110dp",
-              "targetCellWidth": 4,
-              "targetCellHeight": 2,
-              "description": "Shows the current track and playback controls.",
-              "previewImage": "./assets/widget-background.png",
-              "updatePeriodMillis": 0
-            }
-          ]
-        }
-      ]
+      "expo-sharing"
     ],
     "runtimeVersion": {
       "policy": "appVersion"
