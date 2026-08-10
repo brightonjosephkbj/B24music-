@@ -79,7 +79,7 @@
               "targetCellWidth": 4,
               "targetCellHeight": 2,
               "description": "Shows the current track and playback controls.",
-              "previewImage": "./assets/widget-preview.png",
+              "previewImage": "./assets/widget-background.png",
               "updatePeriodMillis": 0
             }
           ]
