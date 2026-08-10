@@ -29,6 +29,8 @@ import { getCachedArtwork, setCachedArtwork } from "./deviceArtworkCache";
 import { registerForPushNotificationsAsync } from "./notifications";
 import LoginScreen, { getStoredAuth, clearStoredAuth, updateStoredAuth } from "./LoginScreen";
 import { generateAIPlaylist } from "./aiPlaylist";
+import { updateNowPlayingWidget } from "./nowPlayingWidget";
+import { registerPlaybackControls } from "./playbackBridge";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Device-scanned tracks skip ID3 reading in bulk (see localMediaScanner.js -
@@ -91,6 +93,16 @@ export default function App() {
   const [activeNav, setActiveNav] = useState("home");
   const [activeDrawerScreen, setActiveDrawerScreen] = useState(null); // e.g. "news"
   const [nowPlaying, setNowPlaying] = useState(null); // track object
+
+  // Push the current track to the home screen widget whenever it changes -
+  // no-op if the widget isn't placed on any home screen.
+  useEffect(() => {
+    updateNowPlayingWidget(nowPlaying, {
+      isPlaying: engine.isPlaying,
+      position: engine.position,
+      duration: engine.duration,
+    });
+  }, [nowPlaying?.id, nowPlaying?.provider, engine.isPlaying, engine.position, engine.duration]);
   const [updateInfo, setUpdateInfo] = useState(null); // set once if /api/ota/check finds a newer version
 
   // Silent launch-time check against the custom OTA backend (ota.py) - not
@@ -236,6 +248,23 @@ export default function App() {
     if (!queue.length) return;
     playAtIndex((queueIndex - 1 + queue.length) % queue.length);
   };
+
+  // Expose live playback controls to the home screen widget's click
+  // handler, which runs outside the normal React tree (see
+  // playbackBridge.js and widget-task-handler.js).
+  useEffect(() => {
+    registerPlaybackControls({
+      toggle: () => engine.toggle(),
+      next: nextTrack,
+      prev: prevTrack,
+      getState: () => ({
+        isPlaying: engine.isPlaying,
+        track: nowPlaying,
+        position: engine.position,
+        duration: engine.duration,
+      }),
+    });
+  }, [engine.isPlaying, engine.position, engine.duration, nowPlaying, queue, queueIndex]);
 
   const expandPlayer = () => setPlayerExpanded(true);
   const collapsePlayer = () => setPlayerExpanded(false);
