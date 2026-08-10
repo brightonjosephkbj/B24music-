@@ -33,6 +33,7 @@ import ContextMenuCard from "./ContextMenuCard";
 import ImageViewer from "./ImageViewer";
 import { scanDeviceMedia } from "./localMediaScanner";
 import { useDownloads } from "./DownloadsContext";
+import { generateAIPlaylist } from "./aiPlaylist";
 
 const GRADIENT_COLORS = ["#121212", "#181818", "#121212"];
 const GLASS_BG = "rgba(255,255,255,0.08)";
@@ -62,6 +63,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [folders, setFolders] = useState([]);
   const [playlists, setPlaylists] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   // Playlist tab extras
   const [playlistSearch, setPlaylistSearch] = useState("");
@@ -102,6 +104,22 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  const generateAI = useCallback(async () => {
+    if (aiGenerating) return;
+    setAiGenerating(true);
+    try {
+      await generateAIPlaylist();
+      await loadAll();
+    } catch (err) {
+      Alert.alert(
+        "Couldn't generate playlist",
+        err.message || "Something went wrong - try again in a bit."
+      );
+    } finally {
+      setAiGenerating(false);
+    }
+  }, [aiGenerating, loadAll]);
 
   const runScan = useCallback(async () => {
     setScanning(true);
@@ -713,6 +731,16 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
                     }}
                   >
                     <Text style={styles.createTileText}>+ New Playlist</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.createTile, aiGenerating && { opacity: 0.6 }]}
+                    onPress={generateAI}
+                    disabled={aiGenerating}
+                  >
+                    <Text style={styles.createTileText}>
+                      {aiGenerating ? "Generating..." : "✨ Generate AI Playlist"}
+                    </Text>
                   </TouchableOpacity>
 
                   <View style={styles.playlistSearchBar}>

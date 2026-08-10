@@ -82,6 +82,37 @@ export async function uploadAvatar(userId, fileUri) {
   return avatarUrl;
 }
 
+// Uploads AI-generated image bytes (base64) the same way uploadAvatar
+// uploads a picked file - writes to a temp file first since uploadAsync
+// needs a real file URI, not raw base64.
+export async function uploadBase64Image(base64Data, category) {
+  const tempUri = FileSystem.cacheDirectory + `${category}_${Date.now()}.png`;
+  await FileSystem.writeAsStringAsync(tempUri, base64Data, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  try {
+    const headers = await authedHeaders();
+    const uploadRes = await FileSystem.uploadAsync(
+      `${API_BASE}/api/downloads/files/upload`,
+      tempUri,
+      {
+        fieldName: "file",
+        httpMethod: "POST",
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        headers,
+        parameters: { app_id: "b24music", category },
+      }
+    );
+    const uploadData = JSON.parse(uploadRes.body || "{}");
+    if (uploadRes.status < 200 || uploadRes.status >= 300 || !uploadData.ok) {
+      throw new Error(uploadData.error || "Image upload failed");
+    }
+    return uploadData.data.url;
+  } finally {
+    await FileSystem.deleteAsync(tempUri, { idempotent: true });
+  }
+}
+
 // Returns the new username on success, or throws with the server's error
 // message (e.g. "That username is already taken").
 export async function updateUsername(userId, newUsername) {

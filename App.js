@@ -28,6 +28,8 @@ import MusicInfo from "expo-music-info-2";
 import { getCachedArtwork, setCachedArtwork } from "./deviceArtworkCache";
 import { registerForPushNotificationsAsync } from "./notifications";
 import LoginScreen, { getStoredAuth, clearStoredAuth, updateStoredAuth } from "./LoginScreen";
+import { generateAIPlaylist } from "./aiPlaylist";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Device-scanned tracks skip ID3 reading in bulk (see localMediaScanner.js -
 // hundreds of native-bridge calls at once was the actual lag source). So
@@ -102,6 +104,38 @@ export default function App() {
         if (result.update_available) setUpdateInfo(result);
       })
       .catch(() => {});
+  }, []);
+
+  // Silent, best-effort "Made for you" playlist generation on launch.
+  // Throttled to once per 24h so it doesn't spam duplicate playlists
+  // every time the app opens. Any failure (no history yet, offline,
+  // backend error) is swallowed - this should never block or nag.
+  useEffect(() => {
+    const AI_PLAYLIST_GEN_KEY = "b24music:aiPlaylistLastGen";
+    const FIRST_SEEN_KEY = "b24music:firstSeenAt";
+    const DELAY_MS = 3 * 24 * 60 * 60 * 1000; // wait 3 days before the first auto-gen
+    const MIN_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000; // then re-gen at most every 3 days
+
+    (async () => {
+      try {
+        let firstSeen = await AsyncStorage.getItem(FIRST_SEEN_KEY);
+        if (!firstSeen) {
+          firstSeen = String(Date.now());
+          await AsyncStorage.setItem(FIRST_SEEN_KEY, firstSeen);
+          return; // brand new install - nothing to base a taste profile on yet
+        }
+        if (Date.now() - Number(firstSeen) < DELAY_MS) return;
+
+        const last = await AsyncStorage.getItem(AI_PLAYLIST_GEN_KEY);
+        if (last && Date.now() - Number(last) < MIN_INTERVAL_MS) return;
+
+        await generateAIPlaylist();
+        await AsyncStorage.setItem(AI_PLAYLIST_GEN_KEY, String(Date.now()));
+      } catch (err) {
+        // No network, not enough listening history, backend error - fine,
+        // just try again next launch after the throttle window.
+      }
+    })();
   }, []);
 
   // Requests notification permission once on launch - covers both the

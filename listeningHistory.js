@@ -27,21 +27,26 @@ async function setJSON(key, value) {
 
 export const getListeningHistory = () => getJSON(HISTORY_KEY, []);
 
-// entry carries everything playTrack()/AppShell need to replay + display the
-// track later (artwork, provider, type, and whichever uri field it had) -
-// not just label fields. Pulled straight off the track object already used
-// everywhere else, so no new shape to maintain, just a fuller slice of it.
+// entry carries everything needed to replay + display the track later
+// (artwork, provider, type, uri fields) - not just label fields. Repeated
+// plays of the same track (matched on id+provider) collapse into one
+// entry with a rising playCount, instead of piling up stale duplicates -
+// keeps the list clean while still preserving replay frequency, which the
+// taste profile below depends on.
 export async function logPlay(track) {
   if (!track?.id) return;
   const history = await getListeningHistory();
-  // Replaying a re-played track shouldn't leave a stale duplicate sitting
-  // lower in the list - drop any earlier entry for the same track first.
-  const withoutDupes = history.filter(
-    (h) => !(h.id === String(track.id) && h.provider === (track.provider || null))
+  const trackId = String(track.id);
+  const provider = track.provider || null;
+
+  const existing = history.find((h) => h.id === trackId && h.provider === provider);
+  const withoutExisting = history.filter(
+    (h) => !(h.id === trackId && h.provider === provider)
   );
+
   const entry = {
-    id: String(track.id),
-    provider: track.provider || null,
+    id: trackId,
+    provider,
     title: track.title || "Unknown title",
     artist: track.artist || "Unknown artist",
     artwork: track.artwork || null,
@@ -50,11 +55,12 @@ export async function logPlay(track) {
     stream_url: track.stream_url || null,
     download_url: track.download_url || null,
     source: track.source || null,
+    playCount: (existing?.playCount || 0) + 1,
     playedAt: Date.now(),
   };
-  const next = [entry, ...withoutDupes].slice(0, MAX_HISTORY_ENTRIES);
+  const next = [entry, ...withoutExisting].slice(0, MAX_HISTORY_ENTRIES);
   await setJSON(HISTORY_KEY, next);
-  console.log("[listeningHistory] logged:", entry.title, "-", entry.artist);
+  console.log("[listeningHistory] logged:", entry.title, "-", entry.artist, `(x${entry.playCount})`);
   return next;
 }
 
@@ -68,4 +74,34 @@ export async function removeHistoryEntry(id, provider) {
 
 export async function clearListeningHistory() {
   return setJSON(HISTORY_KEY, []);
+}
+
+// Aggregates raw history into what the AI playlist generator needs:
+// top artists weighted by actual play count (not just track variety),
+// plus a short list of recent tracks for extra context. Returns null
+// when there's nothing to work with yet, so callers can show a clear
+// "play a few tracks first" message instead of generating off nothing.
+export async function buildTasteProfile() {
+  const history = await getListeningHistory();
+  if (history.length === 0) return null;
+
+  const artistCounts = {};
+  let totalPlays = 0;
+  for (const entry of history) {
+    const weight = entry.playCount || 1;
+    artistCounts[entry.artist] = (artistCounts[entry.artist] || 0) + weight;
+    totalPlays += weight;
+  }
+
+  const topArtists = Object.entries(artistCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([artist, count]) => ({ artist, count }));
+
+  const recentTracks = history.slice(0, 15).map((e) => ({
+    title: e.title,
+    artist: e.artist,
+  }));
+
+  return { topArtists, recentTracks, totalPlays };
 }
