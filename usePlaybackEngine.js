@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAudioPlayer, useAudioPlayerStatus, setAudioModeAsync } from "expo-audio";
 import { useVideoPlayer } from "expo-video";
 import { useEvent } from "expo";
+import { logPlay } from "./listeningHistory";
 
 // ---------------------------------------------------------------------------
 // Unified playback engine for both mp3 (expo-audio) and mp4 (expo-video).
@@ -25,6 +26,8 @@ function resolveUri(track) {
   if (!track) return null;
   return track.localUri || track.stream_url || track.download_url || null;
 }
+
+const MIN_PLAY_SECONDS = 30;
 
 // Configures the audio session once, app-wide, so playback survives the
 // screen locking or the app backgrounding. Without this, expo-audio stops
@@ -92,6 +95,17 @@ export default function usePlaybackEngine(track) {
       audioPlayer?.replace({ uri });
     }
   }, [uri, isVideo, videoPlayer, audioPlayer]);
+
+  // Log a "play" to on-device history once someone's actually stuck with
+  // a track for a bit - not on every tap-and-skip, so the AI recommendation
+  // feature (built next) works from real listening, not noise.
+  useEffect(() => {
+    if (!track?.id) return;
+    const timer = setTimeout(() => {
+      logPlay(track);
+    }, MIN_PLAY_SECONDS * 1000);
+    return () => clearTimeout(timer);
+  }, [track?.id]);
 
   // expo-video doesn't push continuous position updates by default, so we
   // poll currentTime on an interval while a video track is active.

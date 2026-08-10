@@ -53,7 +53,7 @@ const DRAWER_TILES = [
 // this screen doesn't assume any particular navigation library - wire them
 // up to whatever you're using (React Navigation, a simple state switch,
 // etc.) from the parent.
-export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress, onSettingsPress }) {
+export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress, onSettingsPress, onRecentPress }) {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -247,6 +247,9 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
             <Text style={styles.greeting}>Hey there</Text>
           </View>
           <View style={styles.headerRight}>
+            <TouchableOpacity style={styles.iconButton} onPress={onRecentPress}>
+              <Ionicons name="time-outline" size={16} color="#fff" />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={onPasteLinkPress}>
               <Text style={styles.iconGlyph}>Link</Text>
             </TouchableOpacity>

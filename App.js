@@ -18,6 +18,7 @@ import WeatherScreen from "./WeatherScreen";
 import TriviaScreen from "./TriviaScreen";
 import JokesScreen from "./JokesScreen";
 import FoodScreen from "./FoodScreen";
+import RecentScreen from "./RecentScreen";
 import FullscreenVideoPlayer from "./FullscreenVideoPlayer";
 import SettingsScreen from "./SettingsScreen";
 import UpdatePrompt from "./UpdatePrompt";
@@ -221,6 +222,8 @@ export default function App() {
     content = <FoodScreen onBack={backFromDrawerScreen} />;
   } else if (activeDrawerScreen === "pasteUrl") {
     content = <PasteUrlScreen onTrackPress={playTrack} onBack={backFromDrawerScreen} />;
+  } else if (activeDrawerScreen === "recent") {
+    content = <RecentScreen onTrackPress={playTrack} onBack={backFromDrawerScreen} />;
   } else if (activeNav === "home") {
     content = (
       <HomeScreen
@@ -228,6 +231,7 @@ export default function App() {
         onDrawerTilePress={goToDrawerScreen}
         onSearchPress={() => setActiveNav("search")}
         onPasteLinkPress={() => goToDrawerScreen("pasteUrl")}
+        onRecentPress={() => goToDrawerScreen("recent")}
         onSettingsPress={() => setActiveNav("settings")}
         nowPlaying={nowPlaying}
       />
