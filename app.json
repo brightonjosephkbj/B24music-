@@ -73,7 +73,7 @@
     },
     "updates": {
       "url": "https://gateway-cah4.onrender.com/api/ota/api/manifest?app_id=b24music",
-      "enabled": true,
+      "enabled": false,
       "fallbackToCacheTimeout": 30000,
       "requestHeaders": {
         "X-Gateway-Key": "Joy_brightonjosephkbj_Joan"
