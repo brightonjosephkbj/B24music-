@@ -97,6 +97,13 @@ export default function App() {
   // Push the current track to the home screen widget whenever it changes -
   // no-op if the widget isn't placed on any home screen.
   useEffect(() => {
+    // Guard: skip the widget push entirely when nothing is playing yet.
+    // updateNowPlayingWidget() isn't a cheap native no-op - it mounts the
+    // widget JSX on a real offscreen Fabric surface (view creation + font
+    // resolution) to produce RemoteViews. Firing that unconditionally on
+    // first render (nowPlaying === null) raced the app's own first frame
+    // at cold start and caused a black-screen ANR.
+    if (!nowPlaying) return;
     updateNowPlayingWidget(nowPlaying, {
       isPlaying: engine.isPlaying,
       position: engine.position,
@@ -298,6 +305,7 @@ export default function App() {
         onRecentPress={() => goToDrawerScreen("recent")}
         onSettingsPress={() => setActiveNav("settings")}
         nowPlaying={nowPlaying}
+        engine={engine}
       />
     );
   } else if (activeNav === "library") {
