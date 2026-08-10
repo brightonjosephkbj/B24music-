@@ -118,29 +118,32 @@ export default function usePlaybackEngine(track) {
     return () => clearInterval(interval);
   }, [isVideo, videoPlayer]);
 
+  // Update lock screen metadata whenever the track itself changes - not just
+  // when play() is called. Auto-advance and skip swap the player's source
+  // via .replace() while playback continues uninterrupted, so play() never
+  // fires again for the new track - without this effect the lock screen
+  // notification would keep showing whatever track first started playback,
+  // frozen, while the audio underneath had long since moved on.
+  useEffect(() => {
+    if (isVideo || !audioPlayer || !track) return;
+    try {
+      audioPlayer.setActiveForLockScreen(true, {
+        title: track.title || "Unknown title",
+        artist: track.artist || "Unknown artist",
+        artworkUrl: track.artwork || undefined,
+      });
+    } catch (err) {
+      console.warn("Failed to set lock screen metadata:", err);
+    }
+  }, [isVideo, audioPlayer, track?.id, track?.provider]);
+
   const play = useCallback(() => {
     if (isVideo) {
       videoPlayer?.play();
     } else {
-      // Lock-screen controls (title/artist/artwork + play/pause/skip) only
-      // show up if we tell the OS this player is the active one *before*
-      // starting playback - interruptionMode is already set to "doNotMix"
-      // in ensureAudioMode above, which the OS needs to associate the
-      // controls with this specific player correctly.
-      if (audioPlayer && track) {
-        try {
-          audioPlayer.setActiveForLockScreen(true, {
-            title: track.title || "Unknown title",
-            artist: track.artist || "Unknown artist",
-            artworkUrl: track.artwork || undefined,
-          });
-        } catch (err) {
-          console.warn("Failed to set lock screen metadata:", err);
-        }
-      }
       audioPlayer?.play();
     }
-  }, [isVideo, videoPlayer, audioPlayer, track]);
+  }, [isVideo, videoPlayer, audioPlayer]);
 
   const pause = useCallback(() => {
     if (isVideo) videoPlayer?.pause();

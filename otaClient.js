@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import appJson from "./app.json";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 
@@ -32,7 +33,9 @@ export async function checkForUpdate() {
     current_runtime_version: String(currentRuntimeVersion),
   });
 
-  const res = await fetch(`${API_BASE}/api/ota/app/version?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/api/apicache/api/ota/app/version?${params.toString()}`, {
+    headers: await authedHeaders(),
+  });
   if (!res.ok) throw new Error(`OTA check failed: ${res.status}`);
   const data = await res.json();
 

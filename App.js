@@ -99,12 +99,13 @@ export default function App() {
   // check (offline, backend down) is swallowed - it should never block
   // someone from using the app.
   useEffect(() => {
+    if (!authUser) return; // wait for sign-in - checkForUpdate() needs a real JWT now
     checkForUpdate()
       .then((result) => {
         if (result.update_available) setUpdateInfo(result);
       })
       .catch(() => {});
-  }, []);
+  }, [authUser]);
 
   // Silent, best-effort "Made for you" playlist generation on launch.
   // Throttled to once per 24h so it doesn't spam duplicate playlists
