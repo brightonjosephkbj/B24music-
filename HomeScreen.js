@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { PasteUrlCard, RecentPlayedCard } from "./HomeFeatureCards";
 import { PlaylistsRow, SimilarRow, RecentlyAddedRow, ArtistsRow, PodcastsRow } from "./HomeDiscoveryRows";
+import HomeCategorySwiper from "./HomeCategorySwiper";
 
 // ---------------------------------------------------------------------------
 // CONFIG
@@ -36,8 +37,6 @@ const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
 // real /trending response - "New" and "Top Songs" just re-sort what we
 // already fetched, client-side, until the backend grows dedicated logic
 // for those categories.
-const CHIPS = ["All", "Trending", "New", "Top Songs"];
-
 // The 7 Glass Drawer tiles from your plan. Each one maps to a backend
 // blueprint that already exists - "The Rest" bundles space/wiki/commons/
 // met/flights, which don't need their own top-level tile.
@@ -60,7 +59,6 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [activeChip, setActiveChip] = useState("All");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -213,15 +211,13 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
     }
   };
 
-  const displayedTracks = (() => {
-    if (activeChip === "New") {
-      return [...tracks].reverse();
-    }
-    if (activeChip === "Top Songs") {
-      return [...tracks].sort((a, b) => (b.duration || 0) - (a.duration || 0));
-    }
-    return tracks;
-  })();
+  // Three swipeable category cards replace the old chip-filtered grid -
+  // each card gets its own tracks + gradient (see HomeCategorySwiper.js).
+  const categories = [
+    { key: "trending", label: "Trending now", tracks },
+    { key: "new", label: "New", tracks: [...tracks].reverse() },
+    { key: "topSongs", label: "Top Songs", tracks: [...tracks].sort((a, b) => (b.duration || 0) - (a.duration || 0)) },
+  ];
 
   return (
     <View style={styles.root} {...panResponder.panHandlers}>
@@ -267,24 +263,7 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
           <RecentPlayedCard nowPlaying={nowPlaying} engine={engine} onTrackPress={onTrackPress} />
         </View>
 
-        {/* ---------- Category chips ---------- */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-          {CHIPS.map((chip) => {
-            const active = chip === activeChip;
-            return (
-              <TouchableOpacity
-                key={chip}
-                onPress={() => setActiveChip(chip)}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{chip}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {/* ---------- Trending section (real data from /api/music/trending) ---------- */}
-        <Text style={styles.sectionTitle}>Trending now</Text>
+        
 
         {loading && <ActivityIndicator color="#fff" style={{ marginTop: 20 }} />}
 
@@ -298,22 +277,7 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
         )}
 
         {!loading && !error && (
-          <View style={styles.trackGrid}>
-            {displayedTracks.map((track) => (
-              <TouchableOpacity
-                key={`${track.provider}-${track.id}`}
-                style={styles.trackCard}
-                onPress={() => onTrackPress && onTrackPress(track, displayedTracks)}
-              >
-                <Image
-                  source={track.artwork ? { uri: track.artwork } : undefined}
-                  style={styles.trackArt}
-                />
-                <Text numberOfLines={1} style={styles.trackTitle}>{track.title}</Text>
-                <Text numberOfLines={1} style={styles.trackArtist}>{track.artist}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <HomeCategorySwiper categories={categories} onTrackPress={onTrackPress} />
         )}
 
         {loadingMore && <ActivityIndicator color="#fff" style={{ marginTop: 16 }} />}
