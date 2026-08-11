@@ -1,17 +1,15 @@
 import { authedHeaders, API_BASE, uploadBase64Image } from "./apiClient";
 import { buildTasteProfile } from "./listeningHistory";
-import { createPlaylist, addTrackToPlaylist } from "./libraryStorage";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { createPlaylist, addTrackToPlaylist, getDownloads, saveDownloads } from "./libraryStorage";
 
-const KEYS_DOWNLOADS = "b24music:downloads";
-
-async function getDownloadsRaw() {
-  const raw = await AsyncStorage.getItem(KEYS_DOWNLOADS);
-  return raw ? JSON.parse(raw) : [];
-}
-async function saveDownloadsRaw(list) {
-  await AsyncStorage.setItem(KEYS_DOWNLOADS, JSON.stringify(list));
-}
+// NOTE: previously had its own getDownloadsRaw/saveDownloadsRaw pair
+// against the same "b24music:downloads" AsyncStorage key libraryStorage.js
+// uses - two independent unsynchronized read-modify-write cycles on the
+// same key raced each other. A manual download finishing around the same
+// time as this running (background auto-gen or the "Generate AI Playlist"
+// button) could silently clobber the other's entry - the file would exist
+// on disk but vanish from the downloads list with no error. Now routed
+// through libraryStorage.js's own functions so there's one path, not two.
 
 // Same composite key SearchScreen.js uses everywhere - keeping it
 // identical means an AI-added track and a manually-searched-and-saved
@@ -82,7 +80,7 @@ export async function generateAIPlaylist() {
   }
 
   const playlist = await createPlaylist(playlist_name || "Made for you", artworkUrl);
-  const existing = await getDownloadsRaw();
+  const existing = await getDownloads();
   const existingKeys = new Set(existing.map((d) => d.id));
   const newEntries = [];
 
@@ -104,7 +102,7 @@ export async function generateAIPlaylist() {
   }
 
   if (newEntries.length > 0) {
-    await saveDownloadsRaw([...existing, ...newEntries]);
+    await saveDownloads([...existing, ...newEntries]);
   }
 
   return playlist;

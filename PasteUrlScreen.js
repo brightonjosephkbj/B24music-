@@ -33,9 +33,14 @@ const GLASS_BORDER = "rgba(255,255,255,0.25)";
 const ACCENT = "#FF6B6B";
 
 const SPOTIFY_QUALITY_OPTIONS = [
-  { key: "audio_high", quality: "high", ext: "mp3", label: "High Quality (MP3)" },
-  { key: "audio_medium", quality: "medium", ext: "mp3", label: "Medium Quality (MP3)" },
+  { key: "audio_high", mode: "audio", quality: "high", ext: "mp3", label: "High Quality (MP3)" },
+  { key: "audio_medium", mode: "audio", quality: "medium", ext: "mp3", label: "Medium Quality (MP3)" },
 ];
+// Video is only offered when a small number of tracks are selected -
+// lightningExtract'ing + downloading video per track is much heavier than
+// audio, so it's not offered for large batch runs.
+const SPOTIFY_VIDEO_OPTION = { key: "video_720", mode: "video", quality: "medium", ext: "mp4", label: "Video - 720p (MP4)" };
+const SPOTIFY_VIDEO_MAX_TRACKS = 2;
 const SPOTIFY_SHEET_THRESHOLD = 5;
 const SPOTIFY_DEFAULT_OPTION = SPOTIFY_QUALITY_OPTIONS[1];
 
@@ -247,7 +252,7 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
           continue;
         }
 
-        const streamInfo = await lightningExtract(match.url, "audio", option.quality);
+        const streamInfo = await lightningExtract(match.url, option.mode || "audio", option.quality);
         if (isCancelled(dlKey)) continue;
 
         const localUri = FileSystem.documentDirectory + buildLibraryFilename(track.title, track.artist, dlKey, streamInfo.ext || option.ext);
@@ -277,7 +282,7 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
         const entryId = dlKey;
         const entry = {
           id: entryId,
-          type: "audio",
+          type: option.mode === "video" ? "video" : "audio",
           title: track.title,
           artist: track.artist,
           artwork: track.album_art || spotifyPlaylist.art,
@@ -481,7 +486,10 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
           <View style={styles.sheetCard}>
             <Text style={styles.sheetTitle}>{selectedSpotifyTracks.length} songs selected</Text>
             <Text style={styles.sheetSubtitle}>Choose a quality for all of them</Text>
-            {SPOTIFY_QUALITY_OPTIONS.map((option) => (
+            {[
+              ...SPOTIFY_QUALITY_OPTIONS,
+              ...(selectedSpotifyTracks.length <= SPOTIFY_VIDEO_MAX_TRACKS ? [SPOTIFY_VIDEO_OPTION] : []),
+            ].map((option) => (
               <TouchableOpacity
                 key={option.key}
                 style={styles.sheetOptionRow}
