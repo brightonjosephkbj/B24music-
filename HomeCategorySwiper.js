@@ -6,7 +6,7 @@ import { BlurView } from "expo-blur";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = SCREEN_WIDTH - 40;
 const CARD_SPACING = 16;
-const CARD_HEIGHT = 420;
+const CARD_HEIGHT = 660;
 
 export const CATEGORY_PALETTES = {
   trending: { colors: ["#DFF7FF", "#7FCDFF"], textColor: "#0b2b3a" },
@@ -16,40 +16,42 @@ export const CATEGORY_PALETTES = {
 
 function CategoryCard({ label, palette, tracks, onTrackPress }) {
   return (
-    <View style={[styles.card, { width: CARD_WIDTH, marginRight: CARD_SPACING }]}>
-      <LinearGradient
-        colors={palette.colors}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-      <Text style={[styles.cardLabel, { color: palette.textColor }]}>{label}</Text>
+    <View style={[styles.cardShadow, { width: CARD_WIDTH, marginRight: CARD_SPACING }]}>
+      <View style={styles.card}>
+        <LinearGradient
+          colors={palette.colors}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        />
+        <Text style={[styles.cardLabel, { color: palette.textColor }]}>{label}</Text>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.trackList}>
-        {tracks.length === 0 ? (
-          <Text style={[styles.emptyText, { color: palette.textColor }]}>Nothing here yet.</Text>
-        ) : (
-          tracks.map((track) => (
-            <TouchableOpacity
-              key={`${track.provider}-${track.id}`}
-              style={styles.glassRow}
-              onPress={() => onTrackPress && onTrackPress(track, tracks)}
-              activeOpacity={0.85}
-            >
-              <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
-              <Image source={track.artwork ? { uri: track.artwork } : undefined} style={styles.rowArt} />
-              <View style={styles.rowTextWrap}>
-                <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.textColor }]}>
-                  {track.title}
-                </Text>
-                <Text numberOfLines={1} style={[styles.rowArtist, { color: palette.textColor }]}>
-                  {track.artist}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.trackList}>
+          {tracks.length === 0 ? (
+            <Text style={[styles.emptyText, { color: palette.textColor }]}>Nothing here yet.</Text>
+          ) : (
+            tracks.map((track) => (
+              <TouchableOpacity
+                key={`${track.provider}-${track.id}`}
+                style={styles.glassRow}
+                onPress={() => onTrackPress && onTrackPress(track, tracks)}
+                activeOpacity={0.85}
+              >
+                <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+                <Image source={track.artwork ? { uri: track.artwork } : undefined} style={styles.rowArt} />
+                <View style={styles.rowTextWrap}>
+                  <Text numberOfLines={1} style={[styles.rowTitle, { color: palette.textColor }]}>
+                    {track.title}
+                  </Text>
+                  <Text numberOfLines={1} style={[styles.rowArtist, { color: palette.textColor }]}>
+                    {track.artist}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -95,16 +97,20 @@ export default function HomeCategorySwiper({ categories, onTrackPress }) {
 }
 
 const styles = StyleSheet.create({
-  card: {
+  cardShadow: {
     height: CARD_HEIGHT,
     borderRadius: 26,
-    overflow: "hidden",
-    padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.25,
     shadowRadius: 16,
     elevation: 10,
+  },
+  card: {
+    flex: 1,
+    borderRadius: 26,
+    overflow: "hidden",
+    padding: 16,
   },
   cardLabel: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
   trackList: { paddingBottom: 8 },

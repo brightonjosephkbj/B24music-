@@ -37,22 +37,12 @@ async function resolveQuery(query) {
 // each suggestion to a real track, and saves it exactly like a normal
 // playlist - just streamed (download_url) instead of fully downloaded to
 // disk, so it doesn't eat storage/bandwidth automatically in the background.
-export async function generateAIPlaylist() {
-  const tasteProfile = await buildTasteProfile();
-  if (!tasteProfile) {
-    throw new Error("Not enough listening history yet - play a few tracks first.");
-  }
-
-  const res = await fetch(`${API_BASE}/api/apicache/api/ai/playlist`, {
-    method: "POST",
-    headers: await authedHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ taste_profile: tasteProfile }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || "AI playlist generation failed");
-  }
-
+// Shared by generateAIPlaylist() (taste-profile based) and
+// generateChatPlaylist() in aiChat.js (free-text request based) - both
+// backend endpoints return the same {playlist_name, queries, art_base64}
+// shape, so resolving queries to real tracks and saving them only needs
+// to live in one place.
+export async function resolvePlaylistFromAIData(data) {
   const { playlist_name, queries, art_base64 } = data;
 
   const resolved = [];
@@ -67,7 +57,7 @@ export async function generateAIPlaylist() {
   }
 
   if (resolved.length === 0) {
-    throw new Error("Couldn't find matching tracks for your taste profile.");
+    throw new Error("Couldn't find matching tracks for that request.");
   }
 
   let artworkUrl = null;
@@ -106,4 +96,23 @@ export async function generateAIPlaylist() {
   }
 
   return playlist;
+}
+
+export async function generateAIPlaylist() {
+  const tasteProfile = await buildTasteProfile();
+  if (!tasteProfile) {
+    throw new Error("Not enough listening history yet - play a few tracks first.");
+  }
+
+  const res = await fetch(`${API_BASE}/api/apicache/api/ai/playlist`, {
+    method: "POST",
+    headers: await authedHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ taste_profile: tasteProfile }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "AI playlist generation failed");
+  }
+
+  return resolvePlaylistFromAIData(data);
 }

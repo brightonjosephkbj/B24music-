@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
+import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { buildLibraryFilename } from "./libraryFileNaming";
 import { saveDownloadToSharedStorage } from "./mediaLibrarySave";
 import {
@@ -27,10 +29,14 @@ import {
 import { getDownloads, saveDownloads, createPlaylist, addTrackToPlaylist, getPlaylists, updatePlaylist } from "./libraryStorage";
 import { useDownloads } from "./DownloadsContext";
 
-const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
-const GLASS_BG = "rgba(255,255,255,0.14)";
-const GLASS_BORDER = "rgba(255,255,255,0.25)";
-const ACCENT = "#FF6B6B";
+// Cosmic/Vanilla theme - same palette as the Now Playing widget, reused
+// here for visual consistency across the app.
+const COSMIC = "#23212C";
+const VANILLA = "#F1FEC8";
+const GRADIENT_COLORS = ["#2A2836", COSMIC];
+const GLASS_BG = "rgba(241,254,200,0.08)";
+const GLASS_BORDER = "rgba(241,254,200,0.22)";
+const ACCENT = VANILLA;
 
 const SPOTIFY_QUALITY_OPTIONS = [
   { key: "audio_high", mode: "audio", quality: "high", ext: "mp3", label: "High Quality (MP3)" },
@@ -47,6 +53,19 @@ const SPOTIFY_DEFAULT_OPTION = SPOTIFY_QUALITY_OPTIONS[1];
 function safeFilename(title, ext) {
   const clean = (title || "download").replace(/[^A-Za-z0-9 _-]/g, "").trim() || "download";
   return `${clean}.${ext}`;
+}
+
+function isLikelyMediaUrl(text) {
+  if (!text) return false;
+  const t = text.trim();
+  const lower = t.toLowerCase();
+  if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false;
+  return (
+    isSpotifyPlaylistUrl(t) ||
+    lower.includes("spotify.com") ||
+    lower.includes("youtube.com") ||
+    lower.includes("youtu.be")
+  );
 }
 
 function formatDuration(sec) {
@@ -73,6 +92,31 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
   const [spotifyBatchRunning, setSpotifyBatchRunning] = useState(false);
   const [spotifyBatchProgress, setSpotifyBatchProgress] = useState({ current: 0, total: 0 });
   const [spotifyQualitySheetOpen, setSpotifyQualitySheetOpen] = useState(false);
+  const [clipboardSuggestion, setClipboardSuggestion] = useState(null);
+
+  // Check the clipboard once when this screen opens - if it holds a
+  // YouTube/Spotify link, offer a one-tap banner instead of making someone
+  // manually paste. Read failures (empty clipboard, permission denial) just
+  // mean no suggestion shows, never an error state.
+  useEffect(() => {
+    (async () => {
+      try {
+        const text = await Clipboard.getStringAsync();
+        if (isLikelyMediaUrl(text) && text.trim() !== url) {
+          setClipboardSuggestion(text.trim());
+        }
+      } catch {
+        // no-op - clipboard just isn't readable right now
+      }
+    })();
+  }, []);
+
+  const useClipboardSuggestion = () => {
+    if (!clipboardSuggestion) return;
+    setUrl(clipboardSuggestion);
+    setClipboardSuggestion(null);
+  };
+  const dismissClipboardSuggestion = () => setClipboardSuggestion(null);
 
   const onFetch = async () => {
     const trimmed = url.trim();
@@ -343,6 +387,16 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
           import the full track list so you can pick which songs to download.
         </Text>
 
+        {!!clipboardSuggestion && (
+          <TouchableOpacity onPress={useClipboardSuggestion} style={styles.clipboardBanner} activeOpacity={0.85}>
+            <Ionicons name="clipboard-outline" size={16} color={ACCENT} />
+            <Text numberOfLines={1} style={styles.clipboardBannerText}>Use link from clipboard</Text>
+            <TouchableOpacity onPress={dismissClipboardSuggestion} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Text style={styles.clipboardBannerDismiss}>✕</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
         <View style={styles.inputRow}>
           <View style={styles.inputWrap}>
             <TextInput
@@ -365,8 +419,33 @@ export default function PasteUrlScreen({ onTrackPress, onBack }) {
             )}
           </View>
           <TouchableOpacity onPress={onFetch} style={styles.fetchButton}>
-            <Text style={styles.fetchButtonText}>Go</Text>
+            <Text style={styles.fetchButtonText}>Fetch Media</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={styles.sourcesSection}>
+          <Text style={styles.sourcesLabel}>Supported Sources</Text>
+          <View style={styles.platformsRow}>
+            <View style={styles.platformBadge}>
+              <MaterialCommunityIcons name="spotify" size={14} color="#1ED760" />
+              <Text style={styles.platformBadgeText}>Spotify</Text>
+            </View>
+            <View style={styles.platformBadge}>
+              <Ionicons name="logo-youtube" size={14} color="#FF0000" />
+              <Text style={styles.platformBadgeText}>YouTube</Text>
+            </View>
+            <View style={styles.platformBadge}>
+              <Ionicons name="link" size={14} color={ACCENT} />
+              <Text style={styles.platformBadgeText}>Any link</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.infoBox}>
+          <Text style={styles.infoBoxText}>
+            <Text style={styles.infoBoxStrong}>Spotify playlists: </Text>
+            imports the full tracklist so you can pick individual songs to download.
+          </Text>
         </View>
 
         {loading && <ActivityIndicator color="#fff" style={{ marginTop: 20 }} />}
@@ -515,6 +594,20 @@ const styles = StyleSheet.create({
   subtitle: { color: "rgba(255,255,255,0.75)", fontSize: 13, marginBottom: 20, lineHeight: 18 },
 
   inputRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
+  clipboardBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: GLASS_BG,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  clipboardBannerText: { color: ACCENT, fontSize: 13, fontWeight: "600", flex: 1 },
+  clipboardBannerDismiss: { color: "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: "700", paddingHorizontal: 4 },
   inputWrap: { flex: 1, position: "relative", justifyContent: "center" },
   input: {
     backgroundColor: GLASS_BG,
@@ -538,7 +631,7 @@ const styles = StyleSheet.create({
   },
   clearButtonText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   fetchButton: { backgroundColor: ACCENT, borderRadius: 14, paddingHorizontal: 20, justifyContent: "center" },
-  fetchButtonText: { color: "#fff", fontWeight: "700" },
+  fetchButtonText: { color: COSMIC, fontWeight: "700" },
 
   errorText: {
     color: "#fff",
@@ -565,7 +658,7 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: "row", gap: 10, flexWrap: "wrap", justifyContent: "center" },
   playButton: { backgroundColor: ACCENT, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 20 },
   playButtonDisabled: { backgroundColor: "rgba(255,255,255,0.2)" },
-  playButtonText: { color: "#fff", fontWeight: "700" },
+  playButtonText: { color: COSMIC, fontWeight: "700" },
   downloadButton: {
     backgroundColor: "rgba(255,255,255,0.15)",
     borderWidth: 1,
@@ -612,7 +705,7 @@ const styles = StyleSheet.create({
   },
   checkboxChecked: { backgroundColor: ACCENT, borderColor: ACCENT },
   checkboxDone: { backgroundColor: "#6BCB77", borderColor: "#6BCB77" },
-  checkboxMark: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  checkboxMark: { color: COSMIC, fontSize: 13, fontWeight: "700" },
   spotifyTrackArt: { width: 40, height: 40, borderRadius: 6, backgroundColor: "rgba(255,255,255,0.1)" },
   spotifyTrackTitle: { color: "#fff", fontWeight: "600", fontSize: 13 },
   spotifyTrackArtist: { color: "rgba(255,255,255,0.65)", fontSize: 11, marginTop: 2 },
@@ -636,7 +729,7 @@ const styles = StyleSheet.create({
   },
   spotifyBatchBarText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   spotifyBatchButton: { backgroundColor: ACCENT, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8 },
-  spotifyBatchButtonText: { color: "#fff", fontWeight: "700", fontSize: 12 },
+  spotifyBatchButtonText: { color: COSMIC, fontWeight: "700", fontSize: 12 },
 
   sheetCenterWrap: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 24 },
   sheetCard: {
@@ -656,4 +749,38 @@ const styles = StyleSheet.create({
     borderTopColor: "rgba(255,255,255,0.12)",
   },
   sheetOptionLabel: { color: "#fff", fontSize: 14, fontWeight: "600" },
+
+  sourcesSection: { marginTop: 20 },
+  sourcesLabel: {
+    color: "rgba(241,254,200,0.6)",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 10,
+  },
+  platformsRow: { flexDirection: "row", gap: 8 },
+  platformBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  platformBadgeText: { color: VANILLA, fontSize: 12, fontWeight: "600" },
+
+  infoBox: {
+    backgroundColor: "rgba(241,254,200,0.05)",
+    borderLeftWidth: 3,
+    borderLeftColor: VANILLA,
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 14,
+  },
+  infoBoxText: { color: "rgba(241,254,200,0.65)", fontSize: 12, lineHeight: 18 },
+  infoBoxStrong: { color: VANILLA, fontWeight: "700" },
 });

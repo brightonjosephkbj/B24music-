@@ -1,11 +1,14 @@
 import * as MediaLibrary from "expo-media-library/legacy";
-import { parseLibraryFilename, B24_ALBUM_NAME } from "./libraryFileNaming";
+import { parseLibraryFilename } from "./libraryFileNaming";
 
-// Scans only the app's own "B24 Music" album (not the whole device - that
-// used to pull in WhatsApp voice notes, random screen recordings, etc, all
-// showing as "Unknown Artist"). Title/artist come from the filename itself
-// (see libraryFileNaming.js), which survives an uninstall/reinstall since
-// it's baked in at save time - no ID3 reads, no bridge-call lag.
+// Scans the WHOLE device for audio/video, not just the app's own "B24
+// Music" album. Previously scoped to just that album to avoid picking up
+// WhatsApp voice notes, screen recordings, etc as "Unknown Artist" - that
+// filtering is gone now, so expect that noise back if it's present on a
+// given device. Title/artist come from the filename itself where B24's own
+// naming convention was used (see libraryFileNaming.js); anything else
+// just falls back to whatever parseLibraryFilename does with an arbitrary
+// filename.
 
 function toLibraryItem(asset, type) {
   const { title, artist } = parseLibraryFilename(asset.filename);
@@ -41,14 +44,9 @@ export async function scanDeviceMedia() {
   }
 
   try {
-    const album = await MediaLibrary.getAlbumAsync(B24_ALBUM_NAME);
-    if (!album) {
-      return { granted: true, audio: [], video: [], error: null };
-    }
-
     const [audioResult, videoResult] = await Promise.all([
-      MediaLibrary.getAssetsAsync({ album, mediaType: MediaLibrary.MediaType.audio, first: 500 }),
-      MediaLibrary.getAssetsAsync({ album, mediaType: MediaLibrary.MediaType.video, first: 500 }),
+      MediaLibrary.getAssetsAsync({ mediaType: MediaLibrary.MediaType.audio, first: 2000 }),
+      MediaLibrary.getAssetsAsync({ mediaType: MediaLibrary.MediaType.video, first: 2000 }),
     ]);
 
     console.log(

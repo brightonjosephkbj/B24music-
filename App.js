@@ -19,6 +19,7 @@ import TriviaScreen from "./TriviaScreen";
 import JokesScreen from "./JokesScreen";
 import FoodScreen from "./FoodScreen";
 import RecentScreen from "./RecentScreen";
+import AIChatScreen from "./AIChatScreen";
 import FullscreenVideoPlayer from "./FullscreenVideoPlayer";
 import SettingsScreen from "./SettingsScreen";
 import UpdatePrompt from "./UpdatePrompt";
@@ -29,7 +30,7 @@ import { getCachedArtwork, setCachedArtwork } from "./deviceArtworkCache";
 import { registerForPushNotificationsAsync } from "./notifications";
 import LoginScreen, { getStoredAuth, clearStoredAuth, updateStoredAuth } from "./LoginScreen";
 import { generateAIPlaylist } from "./aiPlaylist";
-import { registerPlaybackControls } from "./playbackBridge";
+import { registerPlaybackControls, initMediaControls } from "./playbackBridge";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Device-scanned tracks skip ID3 reading in bulk (see localMediaScanner.js -
@@ -151,6 +152,13 @@ export default function App() {
     registerForPushNotificationsAsync().then((token) => {
       if (token) console.log("[push] token:", token);
     });
+  }, []);
+
+  // Turns on the lock-screen / notification media session once, at launch.
+  // Separate from registerPlaybackControls below, which re-fires on every
+  // engine change to push fresh state - this just needs to run once.
+  useEffect(() => {
+    initMediaControls();
   }, []);
 
   const [playerExpanded, setPlayerExpanded] = useState(false); // State A vs State B
@@ -280,6 +288,8 @@ export default function App() {
     content = <PasteUrlScreen onTrackPress={playTrack} onBack={backFromDrawerScreen} />;
   } else if (activeDrawerScreen === "recent") {
     content = <RecentScreen onTrackPress={playTrack} onBack={backFromDrawerScreen} />;
+  } else if (activeDrawerScreen === "aiChat") {
+    content = <AIChatScreen onClose={backFromDrawerScreen} />;
   } else if (activeNav === "home") {
     content = (
       <HomeScreen
@@ -288,6 +298,7 @@ export default function App() {
         onSearchPress={() => setActiveNav("search")}
         onPasteLinkPress={() => goToDrawerScreen("pasteUrl")}
         onRecentPress={() => goToDrawerScreen("recent")}
+        onAIChatPress={() => goToDrawerScreen("aiChat")}
         onSettingsPress={() => setActiveNav("settings")}
         nowPlaying={nowPlaying}
         engine={engine}

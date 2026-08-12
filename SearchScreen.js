@@ -11,7 +11,6 @@ import {
   Modal,
   Pressable,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import * as FileSystem from "expo-file-system/legacy";
 import { getDownloads, saveDownloads } from "./libraryStorage";
@@ -22,10 +21,15 @@ import { buildLibraryFilename } from "./libraryFileNaming";
 import { saveDownloadToSharedStorage } from "./mediaLibrarySave";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
-const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
-const GLASS_BG = "rgba(255,255,255,0.14)";
-const GLASS_BORDER = "rgba(255,255,255,0.25)";
-const ACCENT = "#FF6B6B";
+const JET_BLACK = "#1D1D1D";
+const ORCHID = "#E5BDDF";
+const GLASS_BG = "rgba(229,189,223,0.06)";
+const GLASS_BORDER = "rgba(229,189,223,0.15)";
+const GLASS_BG_FOCUS = "rgba(229,189,223,0.1)";
+const TEXT_PRIMARY = "#FFFFFF";
+const TEXT_SECONDARY = "rgba(255,255,255,0.6)";
+const ACCENT = ORCHID; // primary call-to-action color throughout
+const ACCENT_ON = JET_BLACK; // text/icon color when sitting on an ACCENT fill
 
 const CATEGORY_LABELS = {
   music: "Music",
@@ -387,7 +391,7 @@ export default function SearchScreen({ onTrackPress }) {
   const renderYoutubeRow = (ytItem) => {
     const isSelected = selectedIds.has(ytItem.id);
     return (
-      <View key={`youtube-${ytItem.id}`} style={styles.row}>
+      <View key={`youtube-${ytItem.id}`} style={styles.glassCard}>
         <TouchableOpacity
           onPress={() => toggleSelected(ytItem.id)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -404,7 +408,7 @@ export default function SearchScreen({ onTrackPress }) {
             <Text numberOfLines={1} style={styles.rowTitle}>{ytItem.title}</Text>
             <View style={styles.rowMetaRow}>
               <Text numberOfLines={1} style={styles.rowArtist}>{ytItem.uploader}</Text>
-              <Text style={styles.providerBadge}>YouTube</Text>
+              <Text style={styles.providerBadge}>YOUTUBE</Text>
             </View>
           </View>
           <Text style={styles.rowDuration}>{formatDuration(ytItem.duration)}</Text>
@@ -421,7 +425,7 @@ export default function SearchScreen({ onTrackPress }) {
     return (
       <TouchableOpacity
         key={key}
-        style={styles.row}
+        style={styles.glassCard}
         onPress={() => onTrackPress && onTrackPress(track)}
       >
         <Image source={track.artwork ? { uri: track.artwork } : undefined} style={styles.rowArt} />
@@ -429,7 +433,7 @@ export default function SearchScreen({ onTrackPress }) {
           <Text numberOfLines={1} style={styles.rowTitle}>{track.title}</Text>
           <View style={styles.rowMetaRow}>
             <Text numberOfLines={1} style={styles.rowArtist}>{track.artist}</Text>
-            <Text style={styles.providerBadge}>{track.provider}</Text>
+            <Text style={styles.providerBadge}>{(track.provider || "").toUpperCase()}</Text>
           </View>
         </View>
         <Text style={styles.rowDuration}>{formatDuration(track.duration)}</Text>
@@ -437,7 +441,7 @@ export default function SearchScreen({ onTrackPress }) {
         {track.downloadable && (
           isDownloading ? (
             <View style={styles.downloadWrap}>
-              <ActivityIndicator color="#fff" size="small" />
+              <ActivityIndicator color={ORCHID} size="small" />
               <Text style={styles.downloadPct}>{Math.round(downloadProgress * 100)}%</Text>
             </View>
           ) : isDownloaded ? (
@@ -460,7 +464,9 @@ export default function SearchScreen({ onTrackPress }) {
 
   return (
     <View style={styles.root}>
-      <LinearGradient colors={GRADIENT_COLORS} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+      <View pointerEvents="none" style={[styles.orb, styles.orb1]} />
+      <View pointerEvents="none" style={[styles.orb, styles.orb2]} />
+      <View pointerEvents="none" style={[styles.orb, styles.orb3]} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Search</Text>
 
@@ -479,7 +485,7 @@ export default function SearchScreen({ onTrackPress }) {
           </TouchableOpacity>
         </View>
 
-        {loading && <ActivityIndicator color="#fff" style={{ marginTop: 24 }} />}
+        {loading && <ActivityIndicator color={ORCHID} style={{ marginTop: 24 }} />}
 
         {!!error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -499,7 +505,7 @@ export default function SearchScreen({ onTrackPress }) {
               <View style={styles.batchBar}>
                 {batchRunning ? (
                   <>
-                    <ActivityIndicator color="#fff" size="small" />
+                    <ActivityIndicator color={ORCHID} size="small" />
                     <Text style={styles.batchBarText}>
                       Downloading {batchProgress.current}/{batchProgress.total}...
                     </Text>
@@ -547,7 +553,7 @@ export default function SearchScreen({ onTrackPress }) {
                     <View key={option.key} style={styles.sheetOptionRow}>
                       <Text style={styles.sheetOptionLabel}>{option.label}</Text>
                       {resolving ? (
-                        <ActivityIndicator color="#fff" size="small" />
+                        <ActivityIndicator color={ORCHID} size="small" />
                       ) : (
                         <View style={styles.sheetOptionActions}>
                           <TouchableOpacity onPress={() => handleSheetPlay(option)} style={styles.sheetActionButton}>
@@ -597,9 +603,15 @@ export default function SearchScreen({ onTrackPress }) {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#000" },
+  root: { flex: 1, backgroundColor: JET_BLACK },
   content: { paddingTop: 56, paddingHorizontal: 20, paddingBottom: 150 },
-  title: { color: "#fff", fontSize: 22, fontWeight: "700", marginBottom: 16 },
+
+  orb: { position: "absolute", borderRadius: 999, backgroundColor: ORCHID },
+  orb1: { top: -60, left: -60, width: 250, height: 250, opacity: 0.1 },
+  orb2: { bottom: 120, right: -70, width: 300, height: 300, opacity: 0.07 },
+  orb3: { top: 380, left: 40, width: 200, height: 200, opacity: 0.05 },
+
+  title: { color: TEXT_PRIMARY, fontSize: 28, fontWeight: "700", letterSpacing: -0.5, marginBottom: 20 },
 
   inputRow: { flexDirection: "row", gap: 10 },
   input: {
@@ -607,27 +619,46 @@ const styles = StyleSheet.create({
     backgroundColor: GLASS_BG,
     borderWidth: 1,
     borderColor: GLASS_BORDER,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    color: "#fff",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    color: TEXT_PRIMARY,
+    fontSize: 15,
   },
-  searchButton: { backgroundColor: ACCENT, borderRadius: 14, paddingHorizontal: 18, justifyContent: "center" },
-  searchButtonText: { color: "#fff", fontWeight: "700" },
+  searchButton: { backgroundColor: ACCENT, borderRadius: 20, paddingHorizontal: 20, justifyContent: "center" },
+  searchButtonText: { color: ACCENT_ON, fontWeight: "700", fontSize: 14 },
 
-  hint: { color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 20, textAlign: "center" },
-  emptyText: { color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 24, textAlign: "center" },
+  hint: { color: TEXT_SECONDARY, fontSize: 13, marginTop: 24, textAlign: "center" },
+  emptyText: { color: TEXT_SECONDARY, fontSize: 13, marginTop: 24, textAlign: "center" },
   errorText: {
-    color: "#fff",
-    backgroundColor: "rgba(200,50,50,0.4)",
+    color: TEXT_PRIMARY,
+    backgroundColor: "rgba(200,50,50,0.35)",
+    borderWidth: 1,
+    borderColor: "rgba(255,100,100,0.3)",
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 14,
     marginTop: 16,
   },
 
-  sectionTitle: { color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 10 },
+  sectionTitle: {
+    color: ORCHID,
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
 
-  row: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
+  glassCard: {
+    backgroundColor: GLASS_BG,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    borderRadius: 20,
+    padding: 12,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
   rowBody: { flex: 1, flexDirection: "row", alignItems: "center" },
   checkbox: {
     width: 22,
@@ -640,7 +671,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   checkboxChecked: { backgroundColor: ACCENT, borderColor: ACCENT },
-  checkboxMark: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  checkboxMark: { color: ACCENT_ON, fontSize: 13, fontWeight: "700" },
 
   batchBar: {
     flexDirection: "row",
@@ -649,45 +680,44 @@ const styles = StyleSheet.create({
     backgroundColor: GLASS_BG,
     borderWidth: 1,
     borderColor: GLASS_BORDER,
-    borderRadius: 14,
+    borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginBottom: 10,
     gap: 8,
   },
-  batchBarText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  batchBarText: { color: TEXT_PRIMARY, fontSize: 13, fontWeight: "600" },
   batchButton: { backgroundColor: ACCENT, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8 },
-  batchButtonText: { color: "#fff", fontWeight: "700", fontSize: 12 },
-  rowArt: { width: 46, height: 46, borderRadius: 8, backgroundColor: GLASS_BG, marginRight: 12 },
+  batchButtonText: { color: ACCENT_ON, fontWeight: "700", fontSize: 12 },
+
+  rowArt: { width: 56, height: 56, borderRadius: 12, backgroundColor: GLASS_BG, marginRight: 14 },
   rowTextWrap: { flex: 1, marginRight: 8 },
-  rowTitle: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  rowMetaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
-  rowArtist: { color: "rgba(255,255,255,0.7)", fontSize: 12, flexShrink: 1 },
+  rowTitle: { color: TEXT_PRIMARY, fontWeight: "600", fontSize: 15, marginBottom: 4 },
+  rowMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowArtist: { color: TEXT_SECONDARY, fontSize: 13, flexShrink: 1 },
   providerBadge: {
-    color: "rgba(255,255,255,0.55)",
+    color: ORCHID,
     fontSize: 10,
     fontWeight: "700",
-    textTransform: "uppercase",
+    backgroundColor: "rgba(229,189,223,0.15)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    borderColor: "rgba(229,189,223,0.2)",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  rowDuration: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginRight: 8 },
+  rowDuration: { color: TEXT_SECONDARY, fontSize: 12, marginRight: 8 },
 
   downloadWrap: { flexDirection: "row", alignItems: "center", gap: 4 },
-  downloadPct: { color: "#fff", fontSize: 10 },
+  downloadPct: { color: TEXT_PRIMARY, fontSize: 10 },
   downloadTouch: {
-    borderWidth: 1,
-    borderColor: GLASS_BORDER,
-    backgroundColor: "rgba(255,255,255,0.15)",
+    backgroundColor: ACCENT,
     borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  downloadGlyph: { color: "#fff", fontSize: 10, fontWeight: "700" },
-  downloadedGlyph: { color: "#6BCB77", fontSize: 11, fontWeight: "700" },
+  downloadGlyph: { color: ACCENT_ON, fontSize: 10, fontWeight: "700" },
+  downloadedGlyph: { color: "#8CE0A0", fontSize: 11, fontWeight: "700" },
 
   sheetCenterWrap: {
     flex: 1,
@@ -698,31 +728,31 @@ const styles = StyleSheet.create({
   sheetCard: {
     width: "100%",
     maxWidth: 380,
-    backgroundColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "rgba(29,29,29,0.9)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
+    borderColor: GLASS_BORDER,
     borderRadius: 22,
     padding: 20,
   },
-  sheetTitle: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  sheetSubtitle: { color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 4, marginBottom: 16 },
+  sheetTitle: { color: TEXT_PRIMARY, fontSize: 16, fontWeight: "700" },
+  sheetSubtitle: { color: TEXT_SECONDARY, fontSize: 12, marginTop: 4, marginBottom: 16 },
   sheetOptionRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.12)",
+    borderTopColor: GLASS_BORDER,
   },
-  sheetOptionLabel: { color: "#fff", fontSize: 13, fontWeight: "600", flex: 1, marginRight: 10 },
+  sheetOptionLabel: { color: TEXT_PRIMARY, fontSize: 13, fontWeight: "600", flex: 1, marginRight: 10 },
   sheetOptionActions: { flexDirection: "row", gap: 8 },
   sheetActionButton: {
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.3)",
-    backgroundColor: "rgba(255,255,255,0.15)",
+    borderColor: GLASS_BORDER,
+    backgroundColor: GLASS_BG_FOCUS,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  sheetActionText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  sheetActionText: { color: ORCHID, fontSize: 12, fontWeight: "700" },
 });

@@ -13,10 +13,10 @@ import {
   RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { PasteUrlCard, RecentPlayedCard } from "./HomeFeatureCards";
 import { PlaylistsRow, SimilarRow, RecentlyAddedRow, ArtistsRow, PodcastsRow } from "./HomeDiscoveryRows";
 import HomeCategorySwiper from "./HomeCategorySwiper";
+import AnalogClock from "./AnalogClock";
 
 // ---------------------------------------------------------------------------
 // CONFIG
@@ -29,9 +29,6 @@ const API_BASE = "https://gateway-cah4.onrender.com";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.78;
-
-// Sunset gradient from your confirmed color system.
-const GRADIENT_COLORS = ["#FF6B6B", "#FFA751", "#4ECDC4"];
 
 // Category chips under the greeting. "All" and "Trending" both read the
 // real /trending response - "New" and "Top Songs" just re-sort what we
@@ -54,7 +51,7 @@ const DRAWER_TILES = [
 // this screen doesn't assume any particular navigation library - wire them
 // up to whatever you're using (React Navigation, a simple state switch,
 // etc.) from the parent.
-export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress, onSettingsPress, onRecentPress, nowPlaying, engine }) {
+export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPress, onPasteLinkPress, onSettingsPress, onRecentPress, onAIChatPress, nowPlaying, engine }) {
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -221,13 +218,6 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
 
   return (
     <View style={styles.root} {...panResponder.panHandlers}>
-      <LinearGradient
-        colors={GRADIENT_COLORS}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -245,14 +235,11 @@ export default function HomeScreen({ onSearchPress, onDrawerTilePress, onTrackPr
             <Text style={styles.greeting}>Hey there</Text>
           </View>
           <View style={styles.headerRight}>
+            <TouchableOpacity style={styles.iconButton} onPress={onAIChatPress}>
+              <Ionicons name="sparkles" size={16} color="#fff" />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={onRecentPress}>
-              <Ionicons name="time-outline" size={16} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={onPasteLinkPress}>
-              <Text style={styles.iconGlyph}>Link</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.iconButton} onPress={onSearchPress}>
-              <Text style={styles.iconGlyph}>Search</Text>
+              <AnalogClock size={18} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
@@ -343,7 +330,7 @@ const GLASS_BG = "rgba(255,255,255,0.14)";
 const GLASS_BORDER = "rgba(255,255,255,0.25)";
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#000" },
+  root: { flex: 1, backgroundColor: "#020202" },
   scrollContent: { paddingTop: 56, paddingHorizontal: 20, paddingBottom: 140 },
 
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 18 },

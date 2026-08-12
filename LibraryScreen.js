@@ -38,8 +38,21 @@ import { generateAIPlaylist } from "./aiPlaylist";
 const GRADIENT_COLORS = ["#121212", "#181818", "#121212"];
 const GLASS_BG = "rgba(255,255,255,0.08)";
 const GLASS_BORDER = "rgba(255,255,255,0.15)";
+const ACCENT_GREEN = "#39FF6A";
+const ACCENT_GREEN_SOFT = "rgba(57,255,106,0.16)";
+const ACCENT_GREEN_BORDER = "rgba(57,255,106,0.35)";
+const PL_GLASS_BG = "rgba(255,255,255,0.04)";
+const PL_GLASS_BORDER = "rgba(255,255,255,0.09)";
+const PL_DARK_GRAY = "#2A2A2E";
 
 const TABS = ["Videos", "All Songs", "Folders", "Playlists", "Artists", "Downloads"];
+const AS_AMBER = "#F5A623";
+const AS_GOLD = "#D4AF37";
+const AS_NEON = "#00FF88";
+const AS_GLASS_BG = "rgba(255,255,255,0.05)";
+const AS_GLASS_BORDER = "rgba(255,255,255,0.09)";
+const AS_ACTIVE_BG = "rgba(245,166,35,0.10)";
+const AS_ACTIVE_BORDER = "rgba(245,166,35,0.35)";
 
 function formatDuration(sec) {
   if (!sec && sec !== 0) return "";
@@ -50,7 +63,7 @@ function formatDuration(sec) {
 
 let deviceMediaCache = null;
 
-export default function LibraryScreen({ onTrackPress, onSearchPress }) {
+export default function LibraryScreen({ onTrackPress, onSearchPress, currentTrackId }) {
   const { activeDownloads, pauseDownload, resumeDownload, cancelDownload } = useDownloads();
   const [activeTab, setActiveTab] = useState("Playlists");
   const [downloads, setDownloads] = useState([]);
@@ -79,6 +92,10 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuItem, setMenuItem] = useState(null);
+
+  const [playlistMenuVisible, setPlaylistMenuVisible] = useState(false);
+  const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState(null);
+  const [playlistMenuTarget, setPlaylistMenuTarget] = useState(null);
 
   const [promptVisible, setPromptVisible] = useState(false);
   const [promptMode, setPromptMode] = useState(null);
@@ -163,6 +180,13 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
     setMenuVisible(true);
   }, []);
 
+  const openPlaylistMenu = useCallback((evt, playlist) => {
+    const { pageX, pageY } = evt.nativeEvent;
+    setPlaylistMenuAnchor({ x: pageX - 110, y: pageY + 8 });
+    setPlaylistMenuTarget(playlist);
+    setPlaylistMenuVisible(true);
+  }, []);
+
   const menuActions = useMemo(() => {
     if (!menuItem) return [];
     return [
@@ -234,6 +258,34 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
       },
     ];
   }, [menuItem, downloads, loadAll, onTrackPress]);
+
+  const playlistMenuActions = useMemo(() => {
+    if (!playlistMenuTarget) return [];
+    return [
+      {
+        key: "editInfo",
+        label: "Edit Info",
+        onPress: () => {
+          setEditPlaylistTarget(playlistMenuTarget);
+          setEditPlaylistName(playlistMenuTarget.name);
+          setEditPlaylistArt(playlistMenuTarget.art || "");
+          setEditPlaylistVisible(true);
+        },
+      },
+      {
+        key: "delete",
+        label: "Delete",
+        destructive: true,
+        onPress: async () => {
+          await deletePlaylist(playlistMenuTarget.id);
+          if (selectedPlaylist && selectedPlaylist.id === playlistMenuTarget.id) {
+            closeDetail();
+          }
+          loadAll();
+        },
+      },
+    ];
+  }, [playlistMenuTarget, selectedPlaylist, loadAll]);
 
   const submitPrompt = async () => {
     const value = promptValue.trim();
@@ -411,6 +463,67 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
   );
 
   const keyExtractor = useCallback((item) => item.id, []);
+
+  const renderAllSongsRow = useCallback(
+    ({ item }) => {
+      const isActive = !!currentTrackId && item.id === currentTrackId;
+      return (
+        <TouchableOpacity
+          style={[styles.asRow, isActive && styles.asRowActive]}
+          onPress={() => {
+            if (item.type === "image") return openImage(item);
+            if (onTrackPress) onTrackPress(item, allSongs);
+          }}
+          onLongPress={(evt) => openMenu(evt, item)}
+          delayLongPress={300}
+          activeOpacity={0.85}
+        >
+          <View style={[styles.asRowArtWrap, isActive && styles.asRowArtWrapActive]}>
+            {item.artwork ? (
+              <Image source={{ uri: item.artwork }} style={styles.asRowArt} />
+            ) : (
+              <View style={[styles.asRowArt, styles.asRowArtPlaceholder]}>
+                <Ionicons name="musical-notes" size={18} color="rgba(255,255,255,0.35)" />
+              </View>
+            )}
+            {isActive && (
+              <View style={styles.asRowEqOverlay}>
+                <View style={[styles.asEqBar, { height: 6 }]} />
+                <View style={[styles.asEqBar, { height: 14 }]} />
+                <View style={[styles.asEqBar, { height: 9 }]} />
+              </View>
+            )}
+          </View>
+
+          <View style={styles.asRowTextWrap}>
+            <View style={styles.asRowTitleRow}>
+              <Text numberOfLines={1} style={styles.asRowTitle}>{item.title}</Text>
+              {isActive && (
+                <View style={styles.asNowBadge}>
+                  <Text style={styles.asNowBadgeText}>NOW</Text>
+                </View>
+              )}
+            </View>
+            {!!item.artist && <Text numberOfLines={1} style={styles.asRowArtist}>{item.artist}</Text>}
+          </View>
+
+          <View style={styles.asRowRight}>
+            <Text style={[styles.asRowDuration, isActive && styles.asRowDurationActive]}>
+              {item.type === "image" ? "Image" : formatDuration(item.duration)}
+            </Text>
+            <TouchableOpacity
+              style={styles.asRowMoreBtn}
+              onPress={(evt) => openMenu(evt, item)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="ellipsis-vertical" size={16} color="rgba(255,255,255,0.5)" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [allSongs, onTrackPress, openMenu, openImage, currentTrackId]
+  );
 
   const renderPlaylistDetailHeader = () => {
     if (!selectedPlaylist) return null;
@@ -662,7 +775,7 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         />
       ) : (
         <>
-          {(activeTab === "Videos" || activeTab === "All Songs" || activeTab === "Downloads") && (
+          {(activeTab === "Videos" || activeTab === "Downloads") && (
             <FlatList
               data={listData}
               keyExtractor={keyExtractor}
@@ -671,6 +784,75 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
               ListHeaderComponent={listHeader}
               ListEmptyComponent={<Text style={styles.emptyText}>{listEmptyText}</Text>}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+              initialNumToRender={12}
+              maxToRenderPerBatch={12}
+              windowSize={7}
+              removeClippedSubviews
+            />
+          )}
+
+          {activeTab === "All Songs" && (
+            <FlatList
+              data={allSongs}
+              keyExtractor={keyExtractor}
+              renderItem={renderAllSongsRow}
+              contentContainerStyle={styles.listContent}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#fff" />}
+              ListHeaderComponent={
+                <>
+                  <View style={styles.asHeroCard}>
+                    <View style={styles.asHeroGlow} pointerEvents="none" />
+                    <View style={styles.asHeroTopRow}>
+                      <View style={styles.asHeroLeftRow}>
+                        <View style={styles.asHeroIconWrap}>
+                          <Ionicons name="sync" size={18} color={AS_AMBER} />
+                        </View>
+                        <View>
+                          <Text style={styles.asHeroTitle}>Sync Storage</Text>
+                          <Text style={styles.asHeroSubtitle}>Deep device audio scan</Text>
+                        </View>
+                      </View>
+                      <View style={styles.asHeroBadge}>
+                        <View style={styles.asHeroBadgeDot} />
+                        <Text style={styles.asHeroBadgeText}>{allSongs.length} Local Files</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.asHeroBottomRow}>
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        {scanDenied && (
+                          <Text style={styles.asHeroStatsText} numberOfLines={2}>
+                            Storage permission was denied - enable it in your phone's app settings to see local songs here.
+                          </Text>
+                        )}
+                        {!!scanErrorMsg && (
+                          <Text style={[styles.asHeroStatsText, { color: "#FF6B6B" }]} numberOfLines={2}>{scanErrorMsg}</Text>
+                        )}
+                        {!!lastScanCounts && !scanErrorMsg && (
+                          <Text style={styles.asHeroStatsText} numberOfLines={1}>
+                            Last scan: {lastScanCounts.audio} audio, {lastScanCounts.video} video
+                          </Text>
+                        )}
+                        {!scanDenied && !scanErrorMsg && !lastScanCounts && (
+                          <Text style={styles.asHeroStatsText} numberOfLines={1}>Scan your device for local audio files</Text>
+                        )}
+                      </View>
+                      <TouchableOpacity style={styles.asHeroRescanBtn} onPress={runScan} disabled={scanning}>
+                        <Text style={styles.asHeroRescanText}>{scanning ? "Scanning..." : "Rescan"}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={styles.asSectionRow}>
+                    <Text style={styles.asSectionLabel}>TRACKS ({allSongs.length})</Text>
+                    <View style={styles.asSortRow}>
+                      <Text style={styles.asSortText}>Recently Added</Text>
+                      <Ionicons name="options-outline" size={14} color={AS_AMBER} />
+                    </View>
+                  </View>
+                </>
+              }
+              ListEmptyComponent={<Text style={styles.emptyText}>No songs yet - download some, or scan your phone storage above.</Text>}
               initialNumToRender={12}
               maxToRenderPerBatch={12}
               windowSize={7}
@@ -723,35 +905,58 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
               ListHeaderComponent={
                 <>
                   <TouchableOpacity
-                    style={styles.createTile}
+                    style={styles.pl2NewPlaylistCard}
                     onPress={() => {
                       setPromptMode("playlist");
                       setPromptValue("");
                       setPromptVisible(true);
                     }}
+                    activeOpacity={0.75}
                   >
-                    <Text style={styles.createTileText}>+ New Playlist</Text>
+                    <View style={styles.pl2NewPlaylistIconWrap}>
+                      <Ionicons name="add" size={20} color="#0A0A0A" />
+                    </View>
+                    <Text style={styles.pl2NewPlaylistText}>New Playlist</Text>
+                    <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.4)" />
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.createTile, aiGenerating && { opacity: 0.6 }]}
+                    style={[styles.pl2AiCard, aiGenerating && { opacity: 0.6 }]}
                     onPress={generateAI}
                     disabled={aiGenerating}
+                    activeOpacity={0.8}
                   >
-                    <Text style={styles.createTileText}>
-                      {aiGenerating ? "Generating..." : "✨ Generate AI Playlist"}
-                    </Text>
+                    <View style={styles.pl2AiGlow} pointerEvents="none" />
+                    <View style={styles.pl2AiRow}>
+                      <View style={styles.pl2AiIconWrap}>
+                        <Ionicons name="sparkles" size={20} color={ACCENT_GREEN} />
+                      </View>
+                      <View style={styles.pl2AiTextWrap}>
+                        <Text style={styles.pl2AiEyebrow}>AI STUDIO</Text>
+                        <Text style={styles.pl2AiTitle}>
+                          {aiGenerating ? "Generating..." : "Generate Custom Mix"}
+                        </Text>
+                      </View>
+                      <View style={styles.pl2AiChevronBtn}>
+                        <Ionicons name="chevron-forward" size={14} color="#fff" />
+                      </View>
+                    </View>
                   </TouchableOpacity>
 
-                  <View style={styles.playlistSearchBar}>
-                    <Ionicons name="search" size={14} color="rgba(255,255,255,0.6)" />
+                  <View style={styles.pl2SearchBar}>
+                    <Ionicons name="search" size={14} color="rgba(255,255,255,0.5)" />
                     <TextInput
-                      style={styles.playlistSearchInput}
+                      style={styles.pl2SearchInput}
                       placeholder="Search playlists..."
                       placeholderTextColor="rgba(255,255,255,0.4)"
                       value={playlistSearch}
                       onChangeText={setPlaylistSearch}
                     />
+                  </View>
+
+                  <View style={styles.pl2SectionRow}>
+                    <Text style={styles.pl2SectionLabel}>YOUR COLLECTIONS</Text>
+                    <View style={styles.pl2SectionDot} />
                   </View>
                 </>
               }
@@ -759,18 +964,27 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
               renderItem={({ item: p }) => {
                 const art = getPlaylistArt(p);
                 return (
-                  <TouchableOpacity style={styles.playlistTile} onPress={() => setSelectedPlaylist(p)}>
-                    <View style={styles.playlistTileCoverWrap}>
+                  <TouchableOpacity
+                    style={styles.pl2Tile}
+                    onPress={() => setSelectedPlaylist(p)}
+                    onLongPress={(evt) => openPlaylistMenu(evt, p)}
+                    delayLongPress={300}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.pl2TileCoverWrap}>
                       {art ? (
-                        <Image source={art} style={styles.playlistTileArt} />
+                        <Image source={art} style={styles.pl2TileArt} />
                       ) : (
-                        <View style={[styles.playlistTileArt, styles.spotifyArtPlaceholder]}>
-                          <Ionicons name="musical-notes" size={32} color="rgba(255,255,255,0.4)" />
+                        <View style={[styles.pl2TileArt, styles.pl2TilePlaceholder]}>
+                          <Ionicons name="musical-notes" size={30} color="rgba(255,255,255,0.35)" />
                         </View>
                       )}
+                      <View style={styles.pl2TilePlayFab}>
+                        <Ionicons name="play" size={13} color="#0A0A0A" style={{ marginLeft: 1 }} />
+                      </View>
                     </View>
-                    <Text numberOfLines={1} style={styles.playlistTileTitle}>{p.name}</Text>
-                    <Text numberOfLines={1} style={styles.playlistTileSub}>
+                    <Text numberOfLines={1} style={styles.pl2TileTitle}>{p.name}</Text>
+                    <Text numberOfLines={1} style={styles.pl2TileSub}>
                       {p.trackIds ? p.trackIds.length : 0} tracks
                     </Text>
                   </TouchableOpacity>
@@ -806,6 +1020,13 @@ export default function LibraryScreen({ onTrackPress, onSearchPress }) {
         anchor={menuAnchor}
         actions={menuActions}
         onClose={() => setMenuVisible(false)}
+      />
+
+      <ContextMenuCard
+        visible={playlistMenuVisible}
+        anchor={playlistMenuAnchor}
+        actions={playlistMenuActions}
+        onClose={() => setPlaylistMenuVisible(false)}
       />
 
       {/* Prompt Modal */}
@@ -1175,4 +1396,129 @@ const styles = StyleSheet.create({
 
   pickerRow: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.1)" },
   pickerRowText: { color: "#fff", fontSize: 15 },
+
+  /* Playlist Tab Redesign v2 - Neon Green Glass */
+  pl2NewPlaylistCard: {
+    flexDirection: "row", alignItems: "center", backgroundColor: PL_GLASS_BG,
+    borderWidth: 1, borderColor: PL_GLASS_BORDER, borderRadius: 20,
+    paddingVertical: 14, paddingHorizontal: 16, marginBottom: 12, gap: 12,
+  },
+  pl2NewPlaylistIconWrap: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: ACCENT_GREEN,
+    justifyContent: "center", alignItems: "center",
+  },
+  pl2NewPlaylistText: { flex: 1, color: "#fff", fontWeight: "700", fontSize: 14 },
+
+  pl2AiCard: {
+    backgroundColor: PL_GLASS_BG, borderWidth: 1, borderColor: PL_GLASS_BORDER,
+    borderRadius: 22, padding: 14, marginBottom: 14, overflow: "hidden",
+  },
+  pl2AiGlow: {
+    position: "absolute", right: -30, bottom: -30, width: 110, height: 110,
+    borderRadius: 55, backgroundColor: ACCENT_GREEN, opacity: 0.18,
+  },
+  pl2AiRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  pl2AiIconWrap: {
+    width: 42, height: 42, borderRadius: 16, backgroundColor: ACCENT_GREEN_SOFT,
+    borderWidth: 1, borderColor: ACCENT_GREEN_BORDER, justifyContent: "center", alignItems: "center",
+  },
+  pl2AiTextWrap: { flex: 1 },
+  pl2AiEyebrow: { color: ACCENT_GREEN, fontSize: 10, fontWeight: "800", letterSpacing: 1.2, marginBottom: 2 },
+  pl2AiTitle: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  pl2AiChevronBtn: {
+    width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.08)",
+    justifyContent: "center", alignItems: "center",
+  },
+
+  pl2SearchBar: {
+    flexDirection: "row", alignItems: "center", backgroundColor: PL_GLASS_BG,
+    borderWidth: 1, borderColor: PL_GLASS_BORDER, borderRadius: 999,
+    paddingHorizontal: 14, paddingVertical: 9, marginBottom: 16, gap: 8,
+  },
+  pl2SearchInput: { flex: 1, color: "#fff", fontSize: 13 },
+
+  pl2SectionRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12,
+  },
+  pl2SectionLabel: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  pl2SectionDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: ACCENT_GREEN },
+
+  pl2Tile: { flex: 1, maxWidth: "48%" },
+  pl2TileCoverWrap: {
+    width: "100%", aspectRatio: 1, borderRadius: 20, overflow: "hidden",
+    backgroundColor: PL_DARK_GRAY, borderWidth: 1, borderColor: PL_GLASS_BORDER, marginBottom: 8,
+  },
+  pl2TileArt: { width: "100%", height: "100%" },
+  pl2TilePlaceholder: { justifyContent: "center", alignItems: "center" },
+  pl2TilePlayFab: {
+    position: "absolute", right: 8, bottom: 8, width: 30, height: 30, borderRadius: 15,
+    backgroundColor: ACCENT_GREEN, justifyContent: "center", alignItems: "center",
+    shadowColor: ACCENT_GREEN, shadowOpacity: 0.5, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 4,
+  },
+  pl2TileTitle: { color: "#fff", fontWeight: "700", fontSize: 13, marginBottom: 2 },
+  pl2TileSub: { color: "rgba(255,255,255,0.5)", fontSize: 11 },
+
+  /* All Songs Tab Redesign - Revolve Amber/Gold Glass */
+  asHeroCard: {
+    backgroundColor: AS_GLASS_BG, borderWidth: 1, borderColor: AS_GLASS_BORDER, borderRadius: 20,
+    padding: 16, marginBottom: 18, overflow: "hidden",
+  },
+  asHeroGlow: {
+    position: "absolute", right: -30, bottom: -30, width: 120, height: 120, borderRadius: 60,
+    backgroundColor: AS_AMBER, opacity: 0.14,
+  },
+  asHeroTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  asHeroLeftRow: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1, marginRight: 10 },
+  asHeroIconWrap: {
+    width: 40, height: 40, borderRadius: 14, backgroundColor: "rgba(245,166,35,0.14)",
+    borderWidth: 1, borderColor: "rgba(245,166,35,0.3)", justifyContent: "center", alignItems: "center",
+  },
+  asHeroTitle: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  asHeroSubtitle: { color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 1 },
+  asHeroBadge: {
+    flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,255,136,0.1)",
+    borderWidth: 1, borderColor: "rgba(0,255,136,0.25)", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  asHeroBadgeDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: AS_NEON },
+  asHeroBadgeText: { color: AS_NEON, fontSize: 10, fontWeight: "700" },
+  asHeroBottomRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.07)",
+  },
+  asHeroStatsText: { color: "rgba(255,255,255,0.55)", fontSize: 11, lineHeight: 15 },
+  asHeroRescanBtn: { backgroundColor: AS_AMBER, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 7 },
+  asHeroRescanText: { color: "#0A0A0A", fontWeight: "800", fontSize: 11, letterSpacing: 0.3 },
+
+  asSectionRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  asSectionLabel: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  asSortRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  asSortText: { color: AS_AMBER, fontSize: 12, fontWeight: "600" },
+
+  asRow: {
+    flexDirection: "row", alignItems: "center", backgroundColor: AS_GLASS_BG,
+    borderWidth: 1, borderColor: AS_GLASS_BORDER, borderRadius: 16, padding: 10, marginBottom: 10,
+  },
+  asRowActive: { backgroundColor: AS_ACTIVE_BG, borderColor: AS_ACTIVE_BORDER },
+  asRowArtWrap: { width: 48, height: 48, borderRadius: 12, overflow: "hidden", marginRight: 12 },
+  asRowArtWrapActive: { borderWidth: 1, borderColor: "rgba(245,166,35,0.5)" },
+  asRowArt: { width: "100%", height: "100%" },
+  asRowArtPlaceholder: { backgroundColor: "#1C1C20", justifyContent: "center", alignItems: "center" },
+  asRowEqOverlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center", alignItems: "center", flexDirection: "row", gap: 2,
+  },
+  asEqBar: { width: 3, borderRadius: 2, backgroundColor: AS_AMBER },
+  asRowTextWrap: { flex: 1, marginRight: 8 },
+  asRowTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  asRowTitle: { color: "#fff", fontWeight: "700", fontSize: 13.5, flexShrink: 1 },
+  asNowBadge: {
+    backgroundColor: "rgba(245,166,35,0.18)", borderWidth: 1, borderColor: "rgba(245,166,35,0.35)",
+    borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1,
+  },
+  asNowBadgeText: { color: AS_AMBER, fontSize: 8.5, fontWeight: "800", letterSpacing: 0.5 },
+  asRowArtist: { color: "rgba(255,255,255,0.5)", fontSize: 11.5, marginTop: 2 },
+  asRowRight: { flexDirection: "row", alignItems: "center", gap: 6 },
+  asRowDuration: { color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "600" },
+  asRowDurationActive: { color: AS_AMBER },
+  asRowMoreBtn: { padding: 4 },
 });
