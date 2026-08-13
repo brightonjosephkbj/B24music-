@@ -79,11 +79,6 @@ jobs:
 
 
       # expo prebuild's generated build.gradle already has a release build
-      # type pointing at signingConfigs.debug by default - we add a real
-      # signingConfigs.release block and repoint that one line at it,
-      # rather than inserting new lines into buildTypes (whitespace there
-      # can shift between Expo SDK versions, this text is stable).
-      # expo prebuild's generated build.gradle already has a release build
       # type pointing at signingConfigs.debug by default - we decode the
       # keystore secret, add a real signingConfigs.release block, and
       # repoint that one line at it, rather than inserting new lines into
