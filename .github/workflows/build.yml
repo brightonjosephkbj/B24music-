@@ -48,6 +48,7 @@ jobs:
 
       - name: Fix Gradle Metaspace OOM
         run: |
+          echo "" >> android/gradle.properties
           cat >> android/gradle.properties << 'PROPSEOF'
           org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
           org.gradle.workers.max=2
