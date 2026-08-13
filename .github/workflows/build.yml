@@ -29,46 +29,26 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # The on-device ImageMagick `convert` commands silently failed
-      # earlier (broken libheif in Termux), so the derived icon files were
-      # left as tiny placeholder stubs. Regenerate all of them fresh here,
-      # every run, straight from the real icon.png - Pillow has no
-      # dependency on libheif at all, so this sidesteps that problem
-      # completely rather than trying to fix Termux's install.
       - name: Generate Android icon assets from icon.png
         run: |
           pip install --quiet --break-system-packages pillow
           python3 << 'ICONEOF'
           from PIL import Image
-
           base = Image.open("assets/icon.png").convert("RGBA")
-
           base.resize((1024, 1024)).save("assets/android-icon-foreground.png")
-
           bg = Image.new("RGBA", (1024, 1024), (15, 18, 32, 255))
           bg.save("assets/android-icon-background.png")
-
           base.resize((1024, 1024)).convert("L").convert("RGBA").save("assets/android-icon-monochrome.png")
-
           base.resize((48, 48)).save("assets/favicon.png")
           base.resize((512, 512)).save("assets/splash-icon.png")
           ICONEOF
 
-      # Managed Expo projects don't commit an android/ folder - prebuild
-      # generates it fresh from app.json each run, so it always reflects
-      # your current plugins (media-library, camera, location, audio, video).
       - name: Expo prebuild (generate native Android project)
         run: npx expo prebuild --platform android --clean
 
-      # expo prebuild regenerates android/gradle.properties every run, so
-      # this can't be a one-time commit to the file - it has to be patched
-      # back in on every build. KSP on expo-updates needs more Metaspace
-      # than Gradle's defaults give it on GitHub's runners, and too much
-      # worker parallelism competes for that same limited memory.
       - name: Fix Gradle Metaspace OOM
         run: |
           cat >> android/gradle.properties << 'PROPSEOF'
-
           org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
           org.gradle.workers.max=2
           org.gradle.parallel=false
@@ -77,43 +57,32 @@ jobs:
           echo "--- android/gradle.properties ---"
           cat android/gradle.properties
 
-
-      # expo prebuild's generated build.gradle already has a release build
-      # type pointing at signingConfigs.debug by default - we decode the
-      # keystore secret, add a real signingConfigs.release block, and
-      # repoint that one line at it, rather than inserting new lines into
-      # buildTypes (whitespace there can shift between Expo SDK versions,
-      # this text is stable).
       - name: Decode keystore and configure signing
         working-directory: android
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/release.keystore
-
           python3 << 'GRADLEEOF'
           with open("app/build.gradle") as f:
               content = f.read()
-
           signing_block = '''    signingConfigs {
-        release {
-            storeFile file('release.keystore')
-            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            keyAlias System.getenv("ANDROID_KEY_ALIAS")
-            keyPassword System.getenv("ANDROID_KEY_PASSWORD")
-        }
-    }
-'''
+              release {
+                  storeFile file('release.keystore')
+                  storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                  keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                  keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+              }
+          }
+          '''
           content = content.replace("android {\n", "android {\n" + signing_block, 1)
           content = content.replace(
               "signingConfig signingConfigs.debug",
               "signingConfig signingConfigs.release"
           )
-
           with open("app/build.gradle", "w") as f:
               f.write(content)
           GRADLEEOF
-
           echo "--- signingConfigs block check ---"
           grep -A 6 "signingConfigs {" app/build.gradle
 
