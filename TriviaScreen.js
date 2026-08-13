@@ -73,7 +73,7 @@ export default function TriviaScreen({ onBack }) {
         const res = await fetch(`${API_BASE}/api/apicache/api/trivia/categories`, { headers });
         const data = await res.json();
         setCategories(data.categories || []);
-      } catch {
+      } catch (e) {
       } finally {
         setCategoriesLoading(false);
       }
