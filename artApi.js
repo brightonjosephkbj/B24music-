@@ -1,4 +1,4 @@
-import { gatewayHeaders } from "./apiClient";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 
@@ -56,28 +56,28 @@ function normalizeCommons(item) {
 // swiping, new stuff appears" random-discovery feel for the default feed.
 export async function fetchArticRandomPage(limit = 24) {
   const randomPage = Math.floor(Math.random() * 60) + 1; // ~60 pages of variety
-  const res = await fetch(`${API_BASE}/api/apicache/api/art/browse?page=${randomPage}&limit=${limit}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/art/browse?page=${randomPage}&limit=${limit}`, { headers: await authedHeaders() });
   if (!res.ok) throw new Error(`Art Institute request failed: ${res.status}`);
   const data = await res.json();
   return (data.artworks || []).map(normalizeArtic).filter((a) => a.image);
 }
 
 export async function searchArtic(query, limit = 24) {
-  const res = await fetch(`${API_BASE}/api/apicache/api/art/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/art/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: await authedHeaders() });
   if (!res.ok) throw new Error(`Art Institute search failed: ${res.status}`);
   const data = await res.json();
   return (data.artworks || []).map(normalizeArtic).filter((a) => a.image);
 }
 
 export async function searchMet(query, limit = 24) {
-  const res = await fetch(`${API_BASE}/api/apicache/api/met/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/met/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: await authedHeaders() });
   if (!res.ok) throw new Error(`Met search failed: ${res.status}`);
   const data = await res.json();
   return (data.artworks || []).map(normalizeMet).filter((a) => a.image);
 }
 
 export async function searchCommons(query, limit = 24) {
-  const res = await fetch(`${API_BASE}/api/apicache/api/commons/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/commons/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: await authedHeaders() });
   if (!res.ok) throw new Error(`Commons search failed: ${res.status}`);
   const data = await res.json();
   return (data.images || []).map(normalizeCommons).filter((a) => a.image);

@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { gatewayHeaders } from "./apiClient";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 const ACCENT = "#FFD166"; // Trivia tile accent from the Glass Drawer
@@ -67,11 +67,17 @@ export default function TriviaScreen({ onBack }) {
   const cardOpacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/apicache/api/trivia/categories`, { headers: gatewayHeaders() })
-      .then((res) => res.json())
-      .then((data) => setCategories(data.categories || []))
-      .catch(() => {})
-      .finally(() => setCategoriesLoading(false));
+    (async () => {
+      try {
+        const headers = await authedHeaders();
+        const res = await fetch(`${API_BASE}/api/apicache/api/trivia/categories`, { headers });
+        const data = await res.json();
+        setCategories(data.categories || []);
+      } catch {
+      } finally {
+        setCategoriesLoading(false);
+      }
+    })();
   }, []);
 
   const buildAnswersFor = (q) => {
@@ -88,7 +94,7 @@ export default function TriviaScreen({ onBack }) {
       if (difficulty) params.set("difficulty", difficulty);
       if (type) params.set("type", type);
 
-      const res = await fetch(`${API_BASE}/api/apicache/api/trivia/questions?${params.toString()}`, { headers: gatewayHeaders() });
+      const res = await fetch(`${API_BASE}/api/apicache/api/trivia/questions?${params.toString()}`, { headers: await authedHeaders() });
       const data = await res.json();
       if (!data.questions || data.questions.length === 0) {
         setQuizError("No questions available for these filters - try different settings.");

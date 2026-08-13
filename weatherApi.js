@@ -1,4 +1,4 @@
-import { gatewayHeaders } from "./apiClient";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 
@@ -29,14 +29,14 @@ export function pickRandomCities(count = 6) {
 }
 
 export async function geocodeSearch(query) {
-  const res = await fetch(`${API_BASE}/api/apicache/api/weather/geocode?q=${encodeURIComponent(query)}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/weather/geocode?q=${encodeURIComponent(query)}`, { headers: await authedHeaders() });
   if (!res.ok) throw new Error(`Geocoding failed: ${res.status}`);
   const data = await res.json();
   return data.results || [];
 }
 
 export async function fetchCurrentWeather(lat, lon) {
-  const res = await fetch(`${API_BASE}/api/apicache/api/weather/current?lat=${lat}&lon=${lon}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/weather/current?lat=${lat}&lon=${lon}`, { headers: await authedHeaders() });
   if (!res.ok) throw new Error(`Weather request failed: ${res.status}`);
   return res.json();
 }

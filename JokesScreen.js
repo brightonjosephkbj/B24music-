@@ -11,7 +11,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 
 // Points at your deployed b24meet backend.
-import { gatewayHeaders } from "./apiClient";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 const ACCENT = "#FFA751"; // Jokes tile accent from the Glass Drawer
@@ -131,7 +131,7 @@ export default function JokesScreen({ onBack }) {
 
     try {
       const params = new URLSearchParams({ category, safe: safeMode ? "true" : "false" });
-      const res = await fetch(`${API_BASE}/api/apicache/api/jokes/random?${params.toString()}`, { headers: gatewayHeaders() });
+      const res = await fetch(`${API_BASE}/api/apicache/api/jokes/random?${params.toString()}`, { headers: await authedHeaders() });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);

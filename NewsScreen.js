@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { WebView } from "react-native-webview";
 
-import { gatewayHeaders } from "./apiClient";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 const ACCENT = "#6BCB77"; // News tile accent from the Glass Drawer
@@ -56,7 +56,7 @@ export default function NewsScreen({ onBack }) {
       setError(null);
       const params = new URLSearchParams({ limit: "20" });
       if (cat && cat !== "general") params.set("category", cat);
-      const res = await fetch(`${API_BASE}/api/apicache/api/news/headlines?${params.toString()}`, { headers: gatewayHeaders() });
+      const res = await fetch(`${API_BASE}/api/apicache/api/news/headlines?${params.toString()}`, { headers: await authedHeaders() });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
       setArticles(data.articles || []);

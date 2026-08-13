@@ -1,4 +1,4 @@
-import { gatewayHeaders } from "./apiClient";
+import { authedHeaders } from "./apiClient";
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 
@@ -17,7 +17,7 @@ export function pickRandomQueries(count = 6) {
 }
 
 export async function searchFood(query, limit = 10) {
-  const res = await fetch(`${API_BASE}/api/apicache/api/food/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/food/search?q=${encodeURIComponent(query)}&limit=${limit}`, { headers: await authedHeaders() });
   if (!res.ok) throw new Error(`Food search failed: ${res.status}`);
   const data = await res.json();
   return data.products || [];
@@ -37,7 +37,7 @@ export async function fetchRandomFoodCards(count = 6) {
 }
 
 export async function getByBarcode(barcode) {
-  const res = await fetch(`${API_BASE}/api/apicache/api/food/barcode/${encodeURIComponent(barcode)}`, { headers: gatewayHeaders() });
+  const res = await fetch(`${API_BASE}/api/apicache/api/food/barcode/${encodeURIComponent(barcode)}`, { headers: await authedHeaders() });
   const data = await res.json();
   if (!data.found) return null;
   return data.product;

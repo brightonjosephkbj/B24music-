@@ -45,3 +45,6 @@ screens_backup.zip
 export_debug.log
 patch_debug_seek.py
 patch_shuffle_autoplay.py
+ota_upload.zip
+dist_ota_expo/
+dist_rollback/
