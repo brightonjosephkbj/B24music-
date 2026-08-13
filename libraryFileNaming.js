@@ -6,13 +6,21 @@
 // "B24 Music" album - no ID3 reads, no lost database, no bridge-call lag
 // (see localMediaScanner.js for why ID3 reading was already rejected once).
 
-const DELIM = "__";
+// Human-readable "Artist - Title.mp3" naming, so files look clean in the
+// Files app / other music players, not just to our own scanner. The old
+// "Title__Artist__id" scheme baked in a random id for guaranteed
+// uniqueness; we drop that from the visible name now - Android's
+// MediaStore auto-renames on a display-name collision (appends " (1)",
+// " (2)", etc.) so uniqueness is still handled, just at the OS level
+// instead of in the filename itself.
+const LEGACY_DELIM = "__";
+const DISPLAY_DELIM = " - ";
 
 function sanitizePart(str) {
   return (
     (str || "")
       .replace(/[\/\\:*?"<>|]/g, "")
-      .replace(/__+/g, "_")
+      .replace(/\s+/g, " ")
       .trim()
       .slice(0, 60) || "Unknown"
   );
@@ -21,19 +29,30 @@ function sanitizePart(str) {
 export function buildLibraryFilename(title, artist, uniqueId, ext = "mp3") {
   const safeTitle = sanitizePart(title || "Untitled");
   const safeArtist = sanitizePart(artist || "Unknown Artist");
-  const safeId = (uniqueId || Date.now().toString(36))
-    .toString()
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .slice(-8);
-  return `${safeTitle}${DELIM}${safeArtist}${DELIM}${safeId}.${ext}`;
+  return `${safeArtist}${DISPLAY_DELIM}${safeTitle}.${ext}`;
 }
 
+// Handles both the new "Artist - Title.ext" format and the old
+// "Title__Artist__id.ext" format, so files downloaded before this change
+// still parse correctly on a rescan instead of showing as "Unknown".
 export function parseLibraryFilename(filename) {
   const base = (filename || "").replace(/\.[^/.]+$/, "");
-  const parts = base.split(DELIM);
-  if (parts.length >= 2) {
-    return { title: parts[0] || "Untitled", artist: parts[1] || "Unknown Artist" };
+
+  if (base.includes(LEGACY_DELIM)) {
+    const parts = base.split(LEGACY_DELIM);
+    if (parts.length >= 2) {
+      return { title: parts[0] || "Untitled", artist: parts[1] || "Unknown Artist" };
+    }
   }
+
+  const sepIndex = base.indexOf(DISPLAY_DELIM);
+  if (sepIndex !== -1) {
+    return {
+      artist: base.slice(0, sepIndex) || "Unknown Artist",
+      title: base.slice(sepIndex + DISPLAY_DELIM.length) || "Untitled",
+    };
+  }
+
   return { title: base || "Untitled", artist: "Unknown Artist" };
 }
 

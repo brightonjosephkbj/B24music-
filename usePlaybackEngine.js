@@ -118,24 +118,14 @@ export default function usePlaybackEngine(track) {
     return () => clearInterval(interval);
   }, [isVideo, videoPlayer]);
 
-  // Update lock screen metadata whenever the track itself changes - not just
-  // when play() is called. Auto-advance and skip swap the player's source
-  // via .replace() while playback continues uninterrupted, so play() never
-  // fires again for the new track - without this effect the lock screen
-  // notification would keep showing whatever track first started playback,
-  // frozen, while the audio underneath had long since moved on.
-  useEffect(() => {
-    if (isVideo || !audioPlayer || !track) return;
-    try {
-      audioPlayer.setActiveForLockScreen(true, {
-        title: track.title || "Unknown title",
-        artist: track.artist || "Unknown artist",
-        artworkUrl: track.artwork || undefined,
-      });
-    } catch (err) {
-      console.warn("Failed to set lock screen metadata:", err);
-    }
-  }, [isVideo, audioPlayer, track?.id, track?.provider]);
+  // Lock screen / Now Playing is owned entirely by expo-media-control
+  // (see playbackBridge.js) - it has the fuller command set (play/pause/
+  // next/prev), unlike expo-audio's own setActiveForLockScreen (seek only,
+  // no next/prev). Running both at once causes them to fight over the same
+  // OS media session - whichever last wrote would "win", which is why
+  // controls used to flicker and the seekbar would drift/jump. Do NOT
+  // re-enable audioPlayer.setActiveForLockScreen() while expo-media-control
+  // is active.
 
   const play = useCallback(() => {
     if (isVideo) {

@@ -21,7 +21,27 @@ import * as MediaLibrary from "expo-media-library/legacy";
 import { addDownload, isDownloaded } from "./libraryStorage";
 import { buildLibraryFilename, B24_ALBUM_NAME } from "./libraryFileNaming";
 
-import { gatewayHeaders } from "./apiClient";
+import { gatewayHeaders, authedHeaders } from "./apiClient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+// ---- Lyrics cache (AsyncStorage, same "b24music:" convention as libraryStorage.js) ----
+function lyricsCacheKey(artist, title) {
+  const norm = (s) => String(s || "").trim().toLowerCase();
+  return `b24music:lyrics:${norm(artist)}::${norm(title)}`;
+}
+async function getCachedLyrics(artist, title) {
+  try {
+    const raw = await AsyncStorage.getItem(lyricsCacheKey(artist, title));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+async function setCachedLyrics(artist, title, data) {
+  try {
+    await AsyncStorage.setItem(lyricsCacheKey(artist, title), JSON.stringify(data));
+  } catch {}
+}
 
 const API_BASE = "https://gateway-cah4.onrender.com";
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -257,15 +277,32 @@ export default function PlayerCard({ track, engine, onCollapse, onNext, onPrev, 
     const params = new URLSearchParams({ artist: track.artist, title: track.title });
     if (track.duration) params.set("duration", String(Math.round(track.duration)));
 
-    fetch(`${API_BASE}/api/apicache/api/music/lyrics?${params.toString()}`, { headers: gatewayHeaders() })
-      .then((res) => res.json())
-      .then((data) => {
+    (async () => {
+      try {
+        const cached = await getCachedLyrics(track.artist, track.title);
+        if (cached) {
+          if (cancelled) return;
+          setLyrics(cached.lyrics || []);
+          setHasSynced(!!cached.hasSynced);
+          setLyricsLoading(false);
+          return;
+        }
+
+        const headers = await authedHeaders();
+        const res = await fetch(`${API_BASE}/api/apicache/api/music/lyrics?${params.toString()}`, { headers });
+        const data = await res.json();
         if (cancelled) return;
         setLyrics(data.lyrics || []);
         setHasSynced(!!data.hasSynced);
-      })
-      .catch(() => {})
-      .finally(() => !cancelled && setLyricsLoading(false));
+        if (data.found && Array.isArray(data.lyrics) && data.lyrics.length > 0) {
+          setCachedLyrics(track.artist, track.title, data);
+        }
+      } catch (e) {
+        if (!cancelled) console.warn("[lyrics] fetch failed:", e?.message || e);
+      } finally {
+        if (!cancelled) setLyricsLoading(false);
+      }
+    })();
 
     return () => {
       cancelled = true;

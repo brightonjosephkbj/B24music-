@@ -83,6 +83,45 @@ jobs:
       # signingConfigs.release block and repoint that one line at it,
       # rather than inserting new lines into buildTypes (whitespace there
       # can shift between Expo SDK versions, this text is stable).
+      # expo prebuild's generated build.gradle already has a release build
+      # type pointing at signingConfigs.debug by default - we decode the
+      # keystore secret, add a real signingConfigs.release block, and
+      # repoint that one line at it, rather than inserting new lines into
+      # buildTypes (whitespace there can shift between Expo SDK versions,
+      # this text is stable).
+      - name: Decode keystore and configure signing
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/release.keystore
+
+          python3 << 'GRADLEEOF'
+          with open("app/build.gradle") as f:
+              content = f.read()
+
+          signing_block = '''    signingConfigs {
+        release {
+            storeFile file('release.keystore')
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+'''
+          content = content.replace("android {\n", "android {\n" + signing_block, 1)
+          content = content.replace(
+              "signingConfig signingConfigs.debug",
+              "signingConfig signingConfigs.release"
+          )
+
+          with open("app/build.gradle", "w") as f:
+              f.write(content)
+          GRADLEEOF
+
+          echo "--- signingConfigs block check ---"
+          grep -A 6 "signingConfigs {" app/build.gradle
+
       - name: Build release APK
         working-directory: android
         env:
@@ -94,5 +133,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: b24meet-release-apk
+          name: b24music-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk

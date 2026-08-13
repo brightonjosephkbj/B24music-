@@ -19,8 +19,12 @@ import { B24_ALBUM_NAME } from "./libraryFileNaming";
 // won't be visible outside the app or survive a reinstall.
 export async function saveDownloadToSharedStorage(localUri) {
   try {
-    const { status } = await MediaLibrary.requestPermissionsAsync();
-    if (status !== "granted") return null;
+    const permission = await MediaLibrary.requestPermissionsAsync();
+    console.log("[mediaLibrarySave] permission result:", JSON.stringify(permission));
+    if (permission.status !== "granted") {
+      console.warn(`[mediaLibrarySave] not saving to shared storage - permission status was "${permission.status}", accessPrivileges: ${permission.accessPrivileges}`);
+      return null;
+    }
 
     const asset = await MediaLibrary.createAssetAsync(localUri);
 
